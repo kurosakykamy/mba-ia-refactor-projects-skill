@@ -1,12 +1,30 @@
+const settings = require('../config/settings');
+const { luhnCheck } = require('../utils/cardValidation');
+
 /**
- * Mock de gateway de pagamento para fins de teste/desenvolvimento.
- * Substituir por uma integração real (Stripe/Pagar.me/etc.) antes de produção.
- * Nunca logar o número do cartão nem a chave do gateway (ver middlewares/errorHandler.js
- * e services/checkoutService.js — nenhum dos dois imprime esses valores).
+ * Números de teste documentados (mesma convenção de sandboxes reais, ex. Stripe) — a
+ * aprovação NUNCA é decidida por prefixo/padrão do número informado pelo cliente.
+ * Fora do modo mock, não existe aprovação simulada: a chamada falha explicitamente
+ * até um provedor real ser integrado (ver anti-pattern #14 / playbook #14 da skill).
  */
+const MOCK_APPROVED_TEST_CARDS = new Set(['4242424242424242']);
+
+class PaymentGatewayNotConfiguredError extends Error {}
+
 function charge(cardNumber) {
-    const status = cardNumber.startsWith('4') ? 'PAID' : 'DENIED';
-    return { status };
+    if (!luhnCheck(cardNumber)) {
+        return { status: 'DENIED', reason: 'invalid_card_number' };
+    }
+
+    if (settings.paymentGatewayMode !== 'mock') {
+        throw new PaymentGatewayNotConfiguredError(
+            'Nenhum gateway de pagamento real integrado. Configure PAYMENT_GATEWAY_MODE=mock ' +
+            'apenas para desenvolvimento/teste, ou implemente um provedor real antes de aceitar pagamentos.',
+        );
+    }
+
+    const status = MOCK_APPROVED_TEST_CARDS.has(cardNumber) ? 'PAID' : 'DENIED';
+    return { status, reason: status === 'DENIED' ? 'card_not_in_test_set' : undefined };
 }
 
-module.exports = { charge };
+module.exports = { charge, PaymentGatewayNotConfiguredError };

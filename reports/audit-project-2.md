@@ -109,3 +109,47 @@ Recommendation: Migrar para `better-sqlite3` (API síncrona) ou `node:sqlite`, e
 ================================
 Total: 16 findings
 ================================
+
+================================
+NOTA DE CORREÇÃO
+================================
+
+Problema reportado: o finding "[CRITICAL] Lógica de Pagamento Falsa / Bypass Trivial" (acima)
+foi corretamente identificado e classificado como CRITICAL na Fase 2, mas a Fase 3 original
+não o corrigiu de fato — apenas moveu `cc.startsWith("4") ? "PAID" : "DENIED"` para
+`src/services/paymentGatewayService.js`, sem alterar o comportamento. Qualquer cartão
+começando com "4" continuava sendo aprovado no fluxo real de checkout, como o próprio log
+de validação do README demonstrava.
+
+Causa raiz: nem o catálogo de anti-patterns nem o playbook da skill tinham uma transformação
+dedicada para "regra de negócio crítica simulada" — a Fase 3 aplicou o tratamento genérico
+mais próximo (extrair para um módulo isolado), que resolve organização mas não resolve a
+vulnerabilidade. Corrigido na skill: `anti-patterns-catalog.md` (#14) e
+`refactoring-playbook.md` (#14), com reforço explícito no `SKILL.md` (Fase 3).
+
+Reprodução confirmada antes da correção: `curl -X POST /api/checkout -d '{"card":"4000000000000001", ...}'`
+→ `{"msg":"Sucesso", ...}` com qualquer cartão começando em "4", sem relação com validade real.
+
+Correção aplicada em `src/services/paymentGatewayService.js` (playbook #14):
+- Validação real do número do cartão via algoritmo de Luhn (`src/utils/cardValidation.js`),
+  aplicada sempre, antes de qualquer decisão de aprovação.
+- Aprovação simulada restrita a um conjunto fixo e documentado de cartões de teste
+  (`4242424242424242`, convenção de sandboxes reais como Stripe) — nunca mais por prefixo.
+- Fail-closed: `src/config/settings.js` recusa carregar (lança erro) se
+  `NODE_ENV=production` e `PAYMENT_GATEWAY_MODE=mock` ao mesmo tempo — a simulação não pode
+  rodar silenciosamente em produção.
+- `PaymentGatewayNotConfiguredError` tratado como `503` no `middlewares/errorHandler.js`.
+
+Evidência de que o finding está resolvido (pós-correção):
+| Cartão | Antes (prefixo) | Depois (Luhn + conjunto de teste) |
+|---|---|---|
+| `4242424242424242` | PAID (começa com 4) | PAID (está no conjunto de teste) |
+| `4111111111111111` | PAID (começa com 4) | DENIED — `card_not_in_test_set` |
+| `4000000000000001` | PAID (começa com 4) | DENIED — `card_not_in_test_set` |
+| `4242424242424241` (Luhn inválido) | PAID (começa com 4) | DENIED — `invalid_card_number` |
+| `NODE_ENV=production PAYMENT_GATEWAY_MODE=mock` | N/A (não existia) | Aplicação recusa subir |
+
+Status: **finding fechado** — a heurística trivial deixou de decidir o resultado; apenas o
+cartão de teste documentado aprova, e a simulação é estruturalmente impossível de rodar
+em configuração de produção.
+================================

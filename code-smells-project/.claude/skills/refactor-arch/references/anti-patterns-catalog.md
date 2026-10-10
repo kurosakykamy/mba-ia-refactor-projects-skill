@@ -64,6 +64,12 @@ Escala de severidade (fixada no enunciado do desafio):
 **Sinal:** imports nunca referenciados no arquivo; funções/serviços definidos mas nunca chamados em todo o projeto (grep confirma zero call sites); dependências no manifesto (`requirements.txt`/`package.json`) nunca importadas no código.
 **Por quê:** aumenta superfície de manutenção e engana o leitor sobre o que o sistema realmente faz.
 
+### 14. Simulated/Fake Critical Business Logic — CRITICAL (quando controla dinheiro, acesso ou dado sensível) / MEDIUM-LOW (quando é regra de negócio não-crítica)
+**Sinal:** uma função decide algo sensível — aprovar pagamento, autorizar ação, validar identidade, detectar fraude — através de uma heurística trivial e previsível (prefixo/sufixo fixo do input, retorno sempre-true, lista hardcoded não documentada, valor aleatório) em vez de validação real (algoritmo correto, chamada a um provedor externo) ou de um mock explicitamente isolado do fluxo de produção.
+**Por quê:** a função devolve exatamente o mesmo formato de saída de uma implementação real (`PAID`/`DENIED`, `true`/`false`), então passa despercebida em revisão superficial — qualquer atacante que descubra o padrão trivial (ex.: "cartão começando com 4 é aprovado") burla a regra de negócio por completo. Quando a decisão envolve dinheiro/acesso, isso é fraude ou bypass de segurança, não apenas débito técnico.
+**Exemplo real encontrado:** `let status = cc.startsWith("4") ? "PAID" : "DENIED";` — qualquer número de cartão começando com "4" "aprova" o próprio pagamento.
+**Atenção na correção (erro comum da própria skill):** **mover esse código para um arquivo/módulo/service isolado NÃO é uma correção** — isso só reorganiza onde a regra fraudável vive, sem alterar o comportamento observável. O finding só pode ser marcado como resolvido quando a heurística trivial deixa de decidir sozinha o resultado: ou a validação passa a ser real (ex.: algoritmo de Luhn + integração com provedor de pagamento), ou a simulação é restrita a um conjunto fixo e documentado de valores de teste (convenção de sandbox real, ex.: números de cartão de teste conhecidos), habilitada apenas por uma flag de ambiente que falha explicitamente (fail-closed) se alguém tentar usá-la fora de desenvolvimento/teste. Ver playbook #14.
+
 ---
 
 ## Detecção de APIs / Padrões Deprecated
@@ -85,4 +91,4 @@ Esta tabela não é exaustiva — ao encontrar uma versão de dependência real,
 
 ## Mínimo de cobertura
 
-Este catálogo contém 13 anti-patterns numerados (acima do mínimo de 8 exigido), cobrindo as 4 faixas de severidade, mais a tabela dedicada de APIs deprecated. Ao gerar o relatório de auditoria (Fase 2), **todo finding deve referenciar o número do anti-pattern deste catálogo** (ex.: "Anti-pattern #2 — SQL Injection") além de severidade, arquivo e linha.
+Este catálogo contém 14 anti-patterns numerados (acima do mínimo de 8 exigido), cobrindo as 4 faixas de severidade, mais a tabela dedicada de APIs deprecated. Ao gerar o relatório de auditoria (Fase 2), **todo finding deve referenciar o número do anti-pattern deste catálogo** (ex.: "Anti-pattern #2 — SQL Injection") além de severidade, arquivo e linha.

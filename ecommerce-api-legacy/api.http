@@ -1,6 +1,6 @@
 @baseUrl = http://localhost:3000
 
-### Checkout - sucesso
+### Checkout - sucesso (cartão de teste documentado, aprovado pelo mock)
 POST {{baseUrl}}/api/checkout
 Content-Type: application/json
 
@@ -9,10 +9,10 @@ Content-Type: application/json
   "eml": "gui@fullcycle.com.br",
   "pwd": "senhaforte",
   "c_id": 2,
-  "card": "4111222233334444"
+  "card": "4242424242424242"
 }
 
-### Checkout - pagamento recusado
+### Checkout - pagamento recusado (cartão Luhn-válido, mas fora do conjunto de teste)
 POST {{baseUrl}}/api/checkout
 Content-Type: application/json
 
@@ -21,11 +21,25 @@ Content-Type: application/json
   "eml": "joao@teste.com",
   "pwd": "123",
   "c_id": 1,
-  "card": "5111222233334444"
+  "card": "4111111111111111"
 }
 
-### Relatório financeiro administrativo
-GET {{baseUrl}}/api/admin/financial-report
+### Checkout - pagamento recusado (número de cartão inválido, falha no Luhn)
+POST {{baseUrl}}/api/checkout
+Content-Type: application/json
 
-### Deletar usuário
+{
+  "usr": "Maria",
+  "eml": "maria@teste.com",
+  "pwd": "123",
+  "c_id": 1,
+  "card": "4242424242424241"
+}
+
+### Relatório financeiro administrativo (requer X-Admin-Token)
+GET {{baseUrl}}/api/admin/financial-report
+X-Admin-Token: dev-admin-token-change-me
+
+### Deletar usuário (requer X-Admin-Token)
 DELETE {{baseUrl}}/api/users/1
+X-Admin-Token: dev-admin-token-change-me

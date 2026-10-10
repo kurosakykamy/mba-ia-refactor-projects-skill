@@ -45,7 +45,8 @@ Só execute esta fase após confirmação explícita do usuário na Fase 2.
 
 1. Siga `references/architecture-guidelines.md` para definir a estrutura MVC alvo, **adaptando ao nível de organização que o projeto já tem** — não destrua estrutura que já está correta; não imponha uma estrutura nova a um projeto que já é MVC bem formado.
 2. Para cada finding do relatório da Fase 2, aplique a transformação correspondente de `references/refactoring-playbook.md` (ou um padrão equivalente quando a stack real não tiver exemplo direto no playbook).
-3. Garanta, ao final, que a estrutura resultante satisfaz o checklist de `references/architecture-guidelines.md` (config extraída, models por domínio, rotas finas, controllers concentrando o fluxo, error handling centralizado, entry point único).
+   - **Atenção especial a findings do anti-pattern #14 (regra de negócio crítica simulada)**: mover/isolar o código em outro módulo/service **não conta como correção** — aplique o playbook #14 (validação real e/ou mock restrito a um conjunto fixo de valores de teste, com falha explícita fora do ambiente de desenvolvimento/teste). Antes de marcar esse finding como resolvido, teste manualmente com um input que antes passava pela heurística trivial (ex.: um valor que satisfaz o padrão ingênuo mas não está no conjunto de teste documentado) e confirme que agora é rejeitado.
+3. Garanta, ao final, que a estrutura resultante satisfaz o checklist de `references/architecture-guidelines.md` (config extraída, models por domínio, rotas finas, controllers concentrando o fluxo, error handling centralizado, entry point único) **e** que nenhuma regra de negócio crítica (pagamento, autorização, detecção de fraude) ainda decide por heurística trivial previsível.
 4. **Valide de verdade, não apenas por leitura de código:**
    - Suba a aplicação com o comando real do projeto (ex.: `python app.py`, `npm start`).
    - Confirme que ela inicia sem erro/exceção no log de boot.
@@ -63,6 +64,7 @@ Só execute esta fase após confirmação explícita do usuário na Fase 2.
      ✓ Application boots without errors
      ✓ All endpoints respond correctly
      ✓ Zero anti-patterns remaining (ou lista do que ficou pendente e por quê)
+     ✓ No simulated critical business logic remains reachable in production mode
    ================================
    ```
 

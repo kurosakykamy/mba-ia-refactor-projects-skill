@@ -149,7 +149,7 @@ $ curl -X POST /login -d '{"email":"'\'' OR '\''1'\''='\''1","senha":"x"}'
 $ curl -X POST /admin/reset-db   →  404 (endpoint removido)
 ```
 
-**Projeto 2** — checkout, relatório admin e cascade delete:
+**Projeto 2** — checkout, relatório admin, cascade delete e pagamento simulado corrigido:
 ```
 LMS API rodando na porta 3000...
 $ curl -X POST /api/checkout (cartão "4...")  → {"msg":"Sucesso","enrollment_id":2}
@@ -157,6 +157,12 @@ $ curl /api/admin/financial-report  (sem token)  → 401
 $ curl /api/admin/financial-report  (com X-Admin-Token)
   → [{"course":"Clean Architecture","revenue":997,...},{"course":"Docker","revenue":497,...}]
 $ curl -X DELETE /api/users/1 (com token) → matrícula/pagamento de Leonan removidos em cascata
+
+# correção do mock de pagamento (ver reports/audit-project-2.md)
+$ curl -X POST /api/checkout -d '{"card":"4242424242424242", ...}'  → {"msg":"Sucesso", ...}      (cartão de teste documentado)
+$ curl -X POST /api/checkout -d '{"card":"4111111111111111", ...}'  → {"erro":"Pagamento recusado"} (Luhn válido, fora do conjunto de teste — antes era aprovado só por começar com "4")
+$ curl -X POST /api/checkout -d '{"card":"4242424242424241", ...}'  → {"erro":"Pagamento recusado"} (Luhn inválido)
+$ NODE_ENV=production PAYMENT_GATEWAY_MODE=mock node src/app.js     → falha ao subir (fail-closed)
 ```
 
 **Projeto 3** — autenticação real e controle de papéis:

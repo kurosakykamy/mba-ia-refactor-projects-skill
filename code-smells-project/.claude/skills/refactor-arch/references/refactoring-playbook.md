@@ -277,6 +277,100 @@ logger.info("login attempt", extra={"email_hash": hash_email(email)})
 
 **Depois:** remover o import e as linhas correspondentes do manifesto de dependências; se a função/serviço morto tiver utilidade real (ex.: `notification_service.py` bem escrito mas nunca chamado), **conectá-lo** ao fluxo correto em vez de apagar, quando isso resolver uma lacuna real (ex.: notificar usuário ao criar tarefa).
 
+## 14. Substituir regra de negócio crítica simulada por validação real + mock isolado do fluxo de produção
+*(corrige anti-pattern #14)*
+
+**Nunca faça isto** (erro comum: tratar o finding como um problema de organização e só mudar o código de lugar):
+```javascript
+// services/paymentGatewayService.js — "corrigido" só na localização, não no comportamento
+function charge(cardNumber) {
+    const status = cardNumber.startsWith('4') ? 'PAID' : 'DENIED';  // ainda fraudável
+    return { status };
+}
+```
+
+**Antes** (regra fraudável, decide por prefixo do input)
+```javascript
+function charge(cardNumber) {
+    const status = cardNumber.startsWith('4') ? 'PAID' : 'DENIED';
+    return { status };
+}
+```
+
+**Depois** — validação real (Luhn) sempre aplicada; a parte simulada só aprova um conjunto fixo e documentado de valores de teste (mesma convenção de sandboxes reais como Stripe), habilitada só em modo explícito de desenvolvimento/teste, com falha explícita (fail-closed) se usada fora dele:
+```javascript
+// utils/cardValidation.js
+function luhnCheck(cardNumber) {
+    const digits = String(cardNumber).replace(/\D/g, '');
+    if (digits.length < 12) return false;
+    let sum = 0, shouldDouble = false;
+    for (let i = digits.length - 1; i >= 0; i--) {
+        let digit = parseInt(digits[i], 10);
+        if (shouldDouble && (digit *= 2) > 9) digit -= 9;
+        sum += digit;
+        shouldDouble = !shouldDouble;
+    }
+    return sum % 10 === 0;
+}
+module.exports = { luhnCheck };
+
+// config/settings.js — fail-closed: a config recusa carregar em config insegura
+const settings = {
+    nodeEnv: process.env.NODE_ENV || 'development',
+    paymentGatewayMode: process.env.PAYMENT_GATEWAY_MODE || 'mock',
+    // ...
+};
+if (settings.nodeEnv === 'production' && settings.paymentGatewayMode === 'mock') {
+    throw new Error('PAYMENT_GATEWAY_MODE=mock não é permitido com NODE_ENV=production.');
+}
+module.exports = settings;
+
+// services/paymentGatewayService.js
+const settings = require('../config/settings');
+const { luhnCheck } = require('../utils/cardValidation');
+
+const MOCK_APPROVED_TEST_CARDS = new Set(['4242424242424242']); // nunca "começa com 4"
+
+class PaymentGatewayNotConfiguredError extends Error {}
+
+function charge(cardNumber) {
+    if (!luhnCheck(cardNumber)) return { status: 'DENIED', reason: 'invalid_card_number' };
+    if (settings.paymentGatewayMode !== 'mock') {
+        throw new PaymentGatewayNotConfiguredError('Nenhum gateway de pagamento real integrado.');
+    }
+    const status = MOCK_APPROVED_TEST_CARDS.has(cardNumber) ? 'PAID' : 'DENIED';
+    return { status, reason: status === 'DENIED' ? 'card_not_in_test_set' : undefined };
+}
+module.exports = { charge, PaymentGatewayNotConfiguredError };
+```
+
+**Equivalente em Python** (ex.: verificação de desconto/autorização simulada por valor hardcoded):
+```python
+# Antes — "autorização" decide por um token fixo no código
+def autorizar_reembolso(token):
+    return token == "qualquer-coisa-123"  # qualquer um que descubra o literal passa
+
+# Depois — validação real (assinatura/expiração) + modo de teste isolado e fail-closed
+import os
+
+MODO_PAGAMENTO = os.environ.get("PAYMENT_GATEWAY_MODE", "mock")
+if os.environ.get("ENV") == "production" and MODO_PAGAMENTO == "mock":
+    raise RuntimeError("PAYMENT_GATEWAY_MODE=mock não é permitido em produção")
+
+def autorizar_reembolso(token):
+    if not validar_assinatura_real(token):
+        return False
+    if MODO_PAGAMENTO != "mock":
+        raise GatewayNaoConfiguradoError("Nenhum provedor real integrado")
+    return token in TOKENS_DE_TESTE_DOCUMENTADOS
+```
+
+**Checklist para considerar este finding resolvido** (não basta compilar/rodar):
+- [ ] A validação real (ex.: Luhn, assinatura, checksum) é aplicada **sempre**, antes de qualquer branch de simulação.
+- [ ] A aprovação simulada só acontece para um conjunto fixo, pequeno e documentado de valores — nunca por prefixo/sufixo/padrão do input do usuário.
+- [ ] Rodar com a flag de modo real desligada (ou `NODE_ENV=production`) falha explicitamente, em vez de silenciosamente aprovar.
+- [ ] Testar manualmente um input que antes passava pela heurística trivial (ex.: `4111111111111111`, que começa com "4" mas não está no conjunto de teste) e confirmar que agora é rejeitado.
+
 ---
 
-13 padrões cobertos (acima do mínimo de 8 exigido). Ao aplicar cada um, confirme que o finding correspondente no relatório de auditoria é fechado, e rode a validação de boot + endpoints (ver `SKILL.md`, Fase 3) antes de considerar a transformação concluída.
+14 padrões cobertos (acima do mínimo de 8 exigido). Ao aplicar cada um, confirme que o finding correspondente no relatório de auditoria é fechado, e rode a validação de boot + endpoints (ver `SKILL.md`, Fase 3) antes de considerar a transformação concluída. Para o padrão #14 em particular, "fechado" significa que a heurística trivial deixou de decidir o resultado — não apenas que o código mudou de arquivo.
