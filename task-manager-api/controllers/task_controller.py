@@ -5,20 +5,35 @@ from models.category import Category
 from models.task import Task
 from models.user import User
 from services.notification_service import NotificationService
-from utils.helpers import process_task_data
+from utils.helpers import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, process_task_data
 
 notification_service = NotificationService()
 
 
-def list_tasks():
-    tasks = Task.query.options(joinedload(Task.user), joinedload(Task.category)).all()
-    result = []
-    for task in tasks:
+def list_tasks(page=1, per_page=DEFAULT_PAGE_SIZE):
+    """Lista tarefas paginadas — nunca carrega a tabela inteira em memória."""
+    per_page = min(max(per_page, 1), MAX_PAGE_SIZE)
+    pagination = (
+        Task.query
+        .options(joinedload(Task.user), joinedload(Task.category))
+        .order_by(Task.id)
+        .paginate(page=page, per_page=per_page, error_out=False)
+    )
+
+    items = []
+    for task in pagination.items:
         data = task.to_dict()
         data['user_name'] = task.user.name if task.user else None
         data['category_name'] = task.category.name if task.category else None
-        result.append(data)
-    return result
+        items.append(data)
+
+    return {
+        'items': items,
+        'page': pagination.page,
+        'per_page': pagination.per_page,
+        'total': pagination.total,
+        'pages': pagination.pages,
+    }
 
 
 def get_task(task_id):

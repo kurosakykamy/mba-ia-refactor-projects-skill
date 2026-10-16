@@ -153,3 +153,50 @@ Status: **finding fechado** — a heurística trivial deixou de decidir o result
 cartão de teste documentado aprova, e a simulação é estruturalmente impossível de rodar
 em configuração de produção.
 ================================
+
+================================
+NOTA DE CORREÇÃO
+================================
+
+Problema reportado: o finding "[HIGH] Estado Global Mutável" (acima) descreve como Impact o
+`globalCache` crescendo sem limite e recomenda "cache com TTL/tamanho máximo". O
+`cacheService.js` gerado na Fase 3 era um `Map` singleton **sem TTL e sem tamanho máximo** —
+apenas o mesmo objeto crescendo dentro de uma `class RequestCache`. O Impact (crescimento
+ilimitado de memória) continuava idêntico ao do código original.
+
+Causa raiz: o "Depois" do padrão #10 do playbook só envolvia o objeto em uma classe, e
+mencionava TTL/lru-cache apenas em um **comentário** — não no código do exemplo.
+
+Agravante encontrado na reauditoria: `cacheService.set()` era chamado em
+`checkoutService.js:44`, mas **`get()` nunca era chamado em lugar nenhum do projeto**
+(confirmado por busca textual). O cache era *write-only*: consumia memória indefinidamente
+sem acelerar absolutamente nada.
+
+Correção aplicada: **remoção completa do cache** — `src/services/cacheService.js` deletado,
+import e chamada removidos de `checkoutService.js`. Para um cache cujo valor nunca é lido, o
+fechamento correto do finding é remover, não limitar: é impossível vazar memória em código
+que não existe.
+
+Correção na skill (para não repetir em outros projetos):
+- `refactoring-playbook.md` #10 reescrito com bloco "Nunca faça isto" (mostrando exatamente o
+  `class RequestCache` sem limite como a correção falsa) e três caminhos de "Depois":
+  (a) remover quando o valor nunca é lido — com o grep que comprova isso;
+  (b) `BoundedCache` com `maxEntries` + TTL e evicção **no código**, não em comentário;
+  (c) estado por requisição em vez de singleton de módulo. Mais checklist de aceite.
+- Mesma estrutura ("Nunca faça isto" + checklist) portada para os padrões #1, #3, #4, #5,
+  #12 e #13, que tinham a mesma fragilidade.
+- `SKILL.md` Fase 3 ganhou a **REGRA DE FECHAMENTO** geral: um finding só é resolvido quando o
+  campo `Impact` do relatório deixa de ser reproduzível; para CRITICAL/HIGH a verificação tem
+  que ser executada, não presumida.
+
+Evidência de que o finding está resolvido:
+| Verificação | Resultado |
+|---|---|
+| `grep -rn "cacheService\|RequestCache\|globalCache" src/` | 0 ocorrências |
+| Estado mutável no escopo de módulo em `src/` | nenhum (o único `new Map()` restante é local de função em `reportService.js:5`, descartado ao fim da requisição) |
+| `npm start` | sobe sem erros |
+| Checkout aprovado / recusado / relatório admin / 401 sem token | todos com o mesmo contrato de antes |
+
+Status: **finding fechado** — não há mais nenhuma estrutura de dados crescendo sem limite no
+projeto; o Impact deixou de existir por remoção, não por reorganização.
+================================

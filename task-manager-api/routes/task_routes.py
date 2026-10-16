@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request
 
 from controllers import task_controller
 from middlewares.auth import login_required
+from utils.helpers import DEFAULT_PAGE_SIZE
 
 task_bp = Blueprint('tasks', __name__)
 
@@ -9,7 +10,15 @@ task_bp = Blueprint('tasks', __name__)
 @task_bp.route('/tasks', methods=['GET'])
 @login_required
 def get_tasks():
-    return jsonify(task_controller.list_tasks()), 200
+    try:
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', DEFAULT_PAGE_SIZE))
+    except ValueError:
+        return jsonify({'error': 'page e per_page devem ser numéricos'}), 400
+    if page < 1 or per_page < 1:
+        return jsonify({'error': 'page e per_page devem ser maiores que zero'}), 400
+
+    return jsonify(task_controller.list_tasks(page=page, per_page=per_page)), 200
 
 
 @task_bp.route('/tasks/<int:task_id>', methods=['GET'])

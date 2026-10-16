@@ -31,14 +31,18 @@ def create_app():
 
     register_error_handlers(app)
 
+    return app
+
+
+def init_db(app):
+    """Cria o schema. Chamada explícita — nunca como efeito colateral de import."""
     with app.app_context():
         db.create_all()
-
-    return app
 
 
 app = create_app()
 
 if __name__ == '__main__':
+    init_db(app)
     logger.info('Servidor iniciado em http://%s:%s', Settings.HOST, Settings.PORT)
     app.run(host=Settings.HOST, port=Settings.PORT, debug=Settings.DEBUG)

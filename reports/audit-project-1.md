@@ -121,3 +121,53 @@ Recommendation: Remover os imports não utilizados (playbook #13).
 ================================
 Total: 18 findings
 ================================
+
+================================
+NOTA DE CORREÇÃO
+================================
+Origem: reauditoria sistemática disparada pela segunda revisão do professor (que apontou, no
+projeto 2, um finding cujo Impact sobreviveu à refatoração). Reauditei todos os findings
+deste projeto com o mesmo critério: *o `Impact` deixou de ser reproduzível, ou só a estrutura
+mudou?* A maioria estava genuinamente fechada; três resíduos foram corrigidos.
+
+**[CRITICAL] Hardcoded Credentials — era PARCIAL.** O vazamento via `/health` estava
+corrigido, mas `config/settings.py` ainda trazia o literal como *default* silencioso
+(`os.environ.get("SECRET_KEY", "dev-only-insecure-key-change-me")`). Isso é fail-**open**:
+sem a variável de ambiente, toda execução usava a chave commitada no repositório — exatamente
+o Impact original ("qualquer pessoa com acesso ao repositório obtém a chave").
+*Correção:* `_required_secret()` com fail-**closed** — fora de `APP_ENV=development`, segredo
+ausente impede o boot.
+*Evidência:* `APP_ENV=production python -c "from config.settings import Settings"` →
+`RuntimeError: SECRET_KEY é obrigatório quando APP_ENV=production`; com a env var definida,
+carrega normalmente.
+
+**[MEDIUM] Error handling centralizado — era PARCIAL em dois pontos.**
+1. A classe `AppError` existia mas **nunca era levantada** — o controller capturava as
+   exceções de domínio manualmente, então o mecanismo central era decorativo.
+   *Correção:* as exceções de `pedido_service` passaram a herdar de `AppError` (com
+   `status_code` próprio: 404 para produto inexistente, 400 para estoque/item inválido) e o
+   `try/except` manual saiu do controller.
+   *Evidência:* produto inexistente → **404**; estoque insuficiente → **400**, ambos
+   formatados pelo handler central.
+2. `@app.errorhandler(Exception)` sem handler de `HTTPException` convertia erros HTTP
+   legítimos (405, 415) em **500**.
+   *Correção:* handler dedicado de `HTTPException` preservando `e.code`.
+   *Evidência:* `DELETE /login` (método não permitido) → **405**, antes era 500.
+
+**[HIGH] Lógica de negócio no controller — resíduo do padrão #5.** O cálculo tinha sido
+movido para o service, mas o efeito colateral (`notification_service.notificar_novo_pedido`)
+continuava sendo disparado **de dentro do controller** — quem chamasse o service fora do
+contexto HTTP não teria a notificação.
+*Correção:* a notificação passou para dentro de `pedido_service.criar_pedido()`, junto da
+regra que a origina. O service agora é chamável de script/job com comportamento completo.
+
+**Bug de correção encontrado na reauditoria (não estava no relatório original):**
+`criar_pedido` não validava `quantidade`. Uma quantidade negativa passava pela checagem de
+estoque (`estoque < -5` é falso), chegava em `decrementar_estoque(..., -5)` e **aumentava** o
+estoque, gerando um pedido com total negativo. Corrigido com `_validar_item()`.
+*Evidência:* `{"quantidade": -5}` → 400 `"Quantidade deve ser maior que zero"`.
+
+### Validação final
+Aplicação sobe sem erros; `/health`, `/produtos`, `/pedidos` (criação válida), `/login` e os
+caminhos de erro (404/400/405) todos respondendo corretamente.
+================================

@@ -45,7 +45,17 @@ Só execute esta fase após confirmação explícita do usuário na Fase 2.
 
 1. Siga `references/architecture-guidelines.md` para definir a estrutura MVC alvo, **adaptando ao nível de organização que o projeto já tem** — não destrua estrutura que já está correta; não imponha uma estrutura nova a um projeto que já é MVC bem formado.
 2. Para cada finding do relatório da Fase 2, aplique a transformação correspondente de `references/refactoring-playbook.md` (ou um padrão equivalente quando a stack real não tiver exemplo direto no playbook).
-   - **Atenção especial a findings do anti-pattern #14 (regra de negócio crítica simulada)**: mover/isolar o código em outro módulo/service **não conta como correção** — aplique o playbook #14 (validação real e/ou mock restrito a um conjunto fixo de valores de teste, com falha explícita fora do ambiente de desenvolvimento/teste). Antes de marcar esse finding como resolvido, teste manualmente com um input que antes passava pela heurística trivial (ex.: um valor que satisfaz o padrão ingênuo mas não está no conjunto de teste documentado) e confirme que agora é rejeitado.
+
+   **REGRA DE FECHAMENTO (vale para todo finding, sem exceção):** um finding só é considerado resolvido quando o **`Impact` descrito no relatório deixa de ser reproduzível no código gerado**. Mudar a forma — mover para outro arquivo, envolver em classe/função, renomear, criar a pasta certa — **não fecha finding nenhum por si só**.
+
+   Procedimento obrigatório, finding a finding:
+   1. Releia o campo `Impact` do relatório (não a `Description`, não a `Recommendation` — o `Impact`).
+   2. Declare **qual verificação concreta** prova que aquele impacto cessou. Exemplos de verificação válida: "inseri `maxEntries + 1` itens e o mais antigo foi evictado"; "`grep` mostra 0 queries dentro de loop"; "`POST` anônimo com `{\"role\":\"admin\"}` retornou 403"; "subir sem a env var falhou com erro explícito"; "o endpoint aceita `?page=2` e retorna no máximo `per_page` itens".
+   3. Para findings **CRITICAL** e **HIGH**, essa verificação tem que ser **executada de fato** (rodar o comando, bater no endpoint), não presumida por leitura de código.
+   4. Se a verificação não passar, o finding continua aberto — relate como pendente no resumo final em vez de marcá-lo como resolvido.
+
+   Cada padrão do playbook traz um bloco **"Nunca faça isto"** com a correção falsa típica daquele anti-pattern e um **checklist de aceite**. Consulte os dois antes de dar o finding por fechado. A tabela "O que significa 'fechado'" no fim do playbook resume as perguntas de fechamento por tipo de impacto.
+
 3. Garanta, ao final, que a estrutura resultante satisfaz o checklist de `references/architecture-guidelines.md` (config extraída, models por domínio, rotas finas, controllers concentrando o fluxo, error handling centralizado, entry point único) **e** que nenhuma regra de negócio crítica (pagamento, autorização, detecção de fraude) ainda decide por heurística trivial previsível.
 4. **Valide de verdade, não apenas por leitura de código:**
    - Suba a aplicação com o comando real do projeto (ex.: `python app.py`, `npm start`).
@@ -65,6 +75,11 @@ Só execute esta fase após confirmação explícita do usuário na Fase 2.
      ✓ All endpoints respond correctly
      ✓ Zero anti-patterns remaining (ou lista do que ficou pendente e por quê)
      ✓ No simulated critical business logic remains reachable in production mode
+     ✓ Every finding's Impact verified as no longer reproducible (not just restructured)
+
+   Para o último item, liste cada finding com a verificação concreta que foi executada, no formato
+   `[SEVERIDADE] nome do finding → verificação: <comando/teste> → resultado`. Findings cujo Impact
+   não pôde ser verificado devem aparecer como **PENDENTE**, nunca como resolvidos.
    ================================
    ```
 

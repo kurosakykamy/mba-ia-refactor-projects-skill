@@ -12,6 +12,9 @@ def register_error_handlers(app):
 
     @app.errorhandler(ValueError)
     def handle_value_error(e):
+        # ValueError é quase sempre bug de programação (int()/strptime/unpack).
+        # Logar com stack trace: devolver 400 silencioso apagaria o rastro do bug.
+        logger.exception('ValueError tratado como requisição inválida')
         return jsonify({'error': 'Dados inválidos'}), 400
 
     @app.errorhandler(Exception)

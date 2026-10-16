@@ -43,6 +43,9 @@ Estas regras são **agnósticas de linguagem**. Aplique os princípios; adapte n
 - [ ] Entry point único e claro (composition root)
 - [ ] Aplicação sobe sem erros
 - [ ] Endpoints originais continuam respondendo com o mesmo contrato observável (mesmo path, mesmo método, mesmo formato de resposta — mudanças internas não devem quebrar clientes existentes)
+- [ ] **Para cada finding do relatório: o `Impact` descrito foi verificado como não mais reproduzível** — com uma verificação concreta executada, não por leitura de código (ver "REGRA DE FECHAMENTO" na Fase 3 do `SKILL.md`)
+
+> Atenção: esta lista mede **estrutura**. Satisfazer todos os itens estruturais acima **não** é suficiente para fechar os findings — um projeto pode ter a árvore de pastas perfeita e ainda vazar memória, aprovar pagamento fraudulento ou expor rota administrativa. O critério de conclusão da Fase 3 é a união deste checklist **com** a verificação de Impact de cada finding.
 
 ## Notas específicas por framework
 

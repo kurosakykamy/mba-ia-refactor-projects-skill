@@ -26,6 +26,15 @@ def _resolve_user_from_request():
     return User.query.get(data.get('user_id'))
 
 
+def resolve_optional_user():
+    """Resolve o usuário do token se houver um válido; None caso contrário.
+
+    Para rotas públicas que se comportam de forma diferente quando o chamador é
+    admin (ex.: cadastro público vs. criação de usuário por admin).
+    """
+    return _resolve_user_from_request()
+
+
 def login_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):

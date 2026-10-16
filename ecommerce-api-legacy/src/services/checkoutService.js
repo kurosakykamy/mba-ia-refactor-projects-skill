@@ -7,7 +7,6 @@ const enrollmentModel = require('../models/enrollmentModel');
 const paymentModel = require('../models/paymentModel');
 const auditLogModel = require('../models/auditLogModel');
 const paymentGatewayService = require('./paymentGatewayService');
-const cacheService = require('./cacheService');
 const { run } = require('../database/db');
 
 class CourseNotFoundError extends Error {}
@@ -40,8 +39,6 @@ async function checkout({ name, email, password, courseId, cardNumber }) {
         await run('ROLLBACK');
         throw err;
     }
-
-    cacheService.set(`last_checkout_${userId}`, course.title);
 
     return { enrollmentId, userId };
 }

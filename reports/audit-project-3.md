@@ -115,3 +115,67 @@ Recommendation: Simplificar para `return condição` diretamente.
 ================================
 Total: 18 findings
 ================================
+
+================================
+NOTA DE CORREÇÃO
+================================
+Origem: reauditoria sistemática disparada pela segunda revisão do professor. Depois de
+corrigir o caso que ele apontou no projeto 2 (cache sem limite), reauditei **todos** os
+findings dos 3 projetos com um critério único: *o `Impact` descrito no relatório deixou de
+ser reproduzível no código, ou só a estrutura mudou?* Este projeto era o que tinha mais
+resíduos.
+
+### Findings que estavam FORM-ONLY (Impact intacto)
+
+**[MEDIUM] Ausência de Paginação** — `controllers/task_controller.py` ainda terminava em
+`.all()`; busca textual por `paginate` no projeto retornava **0 ocorrências**. O endpoint
+continuava carregando a tabela inteira.
+*Correção:* `list_tasks(page, per_page)` usa `paginate()` real com `DEFAULT_PAGE_SIZE=20` e
+teto `MAX_PAGE_SIZE=100`; a rota aceita `?page=&per_page=` e valida tipo.
+*Evidência:* `?page=1&per_page=3` → 3 itens, `total:10`, `pages:4`; `?page=2&per_page=3` →
+ids `[4,5,6]` (página diferente de fato); `?per_page=9999` → `per_page` efetivo `100`;
+`?page=abc` → 400.
+
+**[MEDIUM] `db.create_all()` como efeito colateral de import** — a chamada tinha sido movida
+para dentro de `create_app()`, mas `app.py` executava `app = create_app()` no escopo de
+módulo, fora do `if __name__`. Importar `app` (como `seed.py` faz) continuava criando as
+tabelas — o Impact era byte-a-byte o mesmo, só uma função mais fundo.
+*Correção:* `create_all()` extraído para `init_db(app)`, chamado explicitamente pelo
+`__main__` e pelo `seed.py`.
+*Evidência:* com o banco apagado, `python -c "import app"` **não** cria o arquivo; só
+`python seed.py` / `python app.py` criam.
+
+### Findings PARCIAIS (Impact reduzido, resíduo vivo)
+
+**[CRITICAL] Autenticação/Autorização** — o relatório declara no Impact "promover papéis" e
+"alterar estado de outro usuário". A autenticação real foi implementada, mas duas brechas
+dentro desse mesmo Impact sobreviveram:
+- `POST /users` não tinha decorator e aceitava `role` do corpo validado contra `VALID_ROLES`
+  (que inclui `admin`) → **qualquer anônimo se auto-promovia a admin**.
+- `update_user` era só `@login_required`, sem checagem de dono → **qualquer usuário logado
+  trocava a senha de qualquer outro**.
+*Correção:* cadastro público ignora `role` (sempre `'user'`); definir papel exige token de
+admin; `update_user`/`delete_user` passam por `_can_act_on()` (só a si mesmo, ou admin).
+*Evidência:* `POST /users {"role":"admin"}` anônimo → **403**; cadastro normal anônimo → 201
+com `role: "user"`; Maria (user) tentando `PUT /users/1 {"password":...}` → **403**; Maria
+alterando o próprio nome → 200; admin criando usuário com `role=admin` → 201.
+
+**[MEDIUM] N+1** — 3 dos 4 locais foram corrigidos, mas `controllers/user_controller.py`
+mantinha `len(user.tasks)` dentro do loop (backref lazy = 1 query por usuário) — o corpo
+original de `get_users` copiado sem alteração para o controller.
+*Correção:* uma query agregada `group_by` (mesmo padrão já usado em `category_controller`).
+
+**[MEDIUM] `datetime.utcnow()` deprecated** — `models/category.py:11` ficou de fora da
+substituição.
+*Correção:* passou a usar `utcnow_naive()`. *Evidência:* `grep -rn "datetime.utcnow"` → **0**.
+
+**[MEDIUM] `except:` genérico** — os bare excepts foram removidos, mas o handler central de
+`ValueError` devolvia 400 **sem logar**. Como `ValueError` costuma ser bug de programação,
+isso reintroduzia "bugs mascarados sem rastro" de forma centralizada.
+*Correção:* `logger.exception(...)` antes de responder 400.
+
+### Validação final
+Aplicação sobe sem erros; `/tasks` (paginado), `/tasks/stats`, `/tasks/search`, `/users`,
+`/reports/summary`, `/categories`, `/health` e `/login` todos respondendo; autorização por
+papel e por propriedade testada com tokens reais de admin e de usuário comum.
+================================

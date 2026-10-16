@@ -1,3 +1,5 @@
+from sqlalchemy import func
+
 from database import db
 from middlewares.auth import generate_token
 from models.task import Task
@@ -6,10 +8,14 @@ from utils.helpers import MIN_PASSWORD_LENGTH, VALID_ROLES, validate_email
 
 
 def list_users():
+    """Uma query para usuários + uma agregada para contagem — sem N+1."""
+    counts = dict(
+        db.session.query(Task.user_id, func.count(Task.id)).group_by(Task.user_id).all()
+    )
     result = []
     for user in User.query.all():
         data = user.to_dict()
-        data['task_count'] = len(user.tasks)
+        data['task_count'] = counts.get(user.id, 0)
         result.append(data)
     return result
 
@@ -23,11 +29,17 @@ def get_user(user_id):
     return data
 
 
-def create_user(data):
+def create_user(data, allow_role_assignment=False):
+    """Cria usuário.
+
+    `allow_role_assignment` só é True quando a chamada vem de um admin autenticado.
+    No cadastro público o campo `role` do cliente é IGNORADO — caso contrário qualquer
+    anônimo se auto-promoveria a admin enviando {"role": "admin"}.
+    """
     name = data.get('name')
     email = data.get('email')
     password = data.get('password')
-    role = data.get('role', 'user')
+    role = data.get('role', 'user') if allow_role_assignment else 'user'
 
     if not name:
         return None, 'Nome é obrigatório', 400

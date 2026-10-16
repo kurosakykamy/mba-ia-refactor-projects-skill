@@ -1,11 +1,15 @@
 import logging
 
 from flask import jsonify
+from werkzeug.exceptions import HTTPException
 
 logger = logging.getLogger(__name__)
 
 
 class AppError(Exception):
+    """Exceção de domínio. Subclasses são traduzidas em resposta HTTP pelo
+    handler central — camadas de negócio levantam, não formatam resposta."""
+
     status_code = 400
 
     def __init__(self, message, status_code=None):
@@ -26,7 +30,16 @@ def register_error_handlers(app):
 
     @app.errorhandler(ValueError)
     def handle_value_error(e):
+        # ValueError costuma ser bug de programação — logar antes de devolver 400,
+        # senão o erro desaparece sem rastro.
+        logger.exception("ValueError tratado como requisição inválida")
         return jsonify({"erro": "Dados inválidos", "sucesso": False}), 400
+
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(e):
+        # Preserva o status correto (405, 415, 400...) em vez de deixar o
+        # catch-all de Exception converter tudo em 500.
+        return jsonify({"erro": e.description, "sucesso": False}), e.code
 
     @app.errorhandler(Exception)
     def handle_unexpected(e):

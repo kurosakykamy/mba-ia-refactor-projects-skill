@@ -72,6 +72,8 @@ A skill vive em `.claude/skills/refactor-arch/` (criada dentro de `code-smells-p
 1. *Severidade do "God Class" em `models.py` do projeto 1*: a definição do enunciado liga CRITICAL a "banco de dados + lógica + roteamento no mesmo arquivo". `models.py` mistura banco+lógica mas não roteamento (que está em `app.py`). Resolvi classificando como HIGH e documentando a diferença no próprio catálogo, para a skill aplicar o critério com rigor em vez de copiar cegamente o exemplo do enunciado.
 2. *Checkout público no projeto 2*: o achado inicial listava `/api/checkout` junto com as 2 rotas administrativas como "sem autenticação". Na Fase 3, decidi **não** exigir login no checkout (é um fluxo de auto-atendimento de compra, como um e-commerce real) e, em vez disso, endureci validação de entrada, removi o log de dados sensíveis e adicionei transação — mantendo `requireAdmin` só nas 2 rotas genuinamente administrativas. Documentei essa adaptação explicitamente para não parecer que um finding foi ignorado sem motivo.
 3. *Datas aware vs. naive no projeto 3*: substituir `datetime.utcnow()` (deprecated) por `datetime.now(timezone.utc)` quebra comparações com `due_date` (armazenado naive via `strptime`). Resolvido com um helper único `utcnow_naive()` em `utils/helpers.py`, usado em todo o projeto — elimina a chamada deprecated sem mudar o comportamento observável.
+4. *Regra de negócio crítica simulada "corrigida" só na localização*: a Fase 2 do projeto 2 classificou corretamente como CRITICAL a aprovação de pagamento por prefixo de cartão (`cc.startsWith("4")`), mas a primeira versão da Fase 3 só moveu essa linha para `paymentGatewayService.js`, sem alterar o comportamento — qualquer cartão começando com "4" continuava aprovando. Causa raiz: o catálogo não tinha uma entrada para "regra de negócio crítica simulada", então a Fase 3 aplicou o tratamento genérico mais próximo (isolar em módulo). Corrigido com o anti-pattern **#14** e o playbook **#14** (validação real via algoritmo de Luhn + aprovação restrita a um conjunto fixo de cartões de teste documentados + guarda *fail-closed* que recusa subir em `NODE_ENV=production` com o modo simulado ligado).
+5. *O padrão de falha por trás do desafio anterior — "resolve a forma, não o Impact"*: uma segunda revisão apontou que o finding HIGH do `globalCache` (projeto 2) recomendava "cache com TTL ou tamanho máximo", mas o `cacheService.js` gerado era um `Map` singleton sem nenhum dos dois — e o playbook mencionava TTL apenas em um *comentário*, não no código do exemplo. Na reauditoria encontrei um agravante: o cache era **write-only** (`set()` chamado, `get()` sem nenhum call site), então a correção certa não era limitar e sim **remover**. Reconhecendo que essa era a segunda instância da mesma classe de erro, parei de corrigir caso a caso e fiz uma **auditoria sistemática dos 14 padrões do playbook e dos 3 projetos**, comparando o campo `Impact` de cada finding contra o que o código realmente faz. Resultado: 7 padrões delegavam a mudança de comportamento a algo não mostrado no exemplo (um validador inexistente no #3, um comentário sobre TTL no #10, uma árvore de pastas no #4), e 8 findings dados como fechados tinham o Impact intacto ou parcial — incluindo paginação nunca implementada e `db.create_all()` ainda rodando no import (projeto 3), `SECRET_KEY` fail-open (projeto 1), e duas brechas de escalada de privilégio (projeto 3: registro anônimo aceitando `role=admin`, e troca de senha de terceiros). A correção estrutural foi tornar o critério comportamental **explícito e geral**: cada padrão fraco ganhou um bloco "Nunca faça isto" (mostrando a correção falsa típica daquele anti-pattern) e um checklist de aceite; a Fase 3 do `SKILL.md` ganhou uma **REGRA DE FECHAMENTO** que exige declarar e *executar* uma verificação concreta por finding — para CRITICAL/HIGH, verificada de fato, não presumida por leitura de código. Evidências nas "Notas de correção" dos três relatórios em `reports/`.
 
 ## C) Resultados
 
@@ -163,9 +165,24 @@ $ curl -X POST /api/checkout -d '{"card":"4242424242424242", ...}'  → {"msg":"
 $ curl -X POST /api/checkout -d '{"card":"4111111111111111", ...}'  → {"erro":"Pagamento recusado"} (Luhn válido, fora do conjunto de teste — antes era aprovado só por começar com "4")
 $ curl -X POST /api/checkout -d '{"card":"4242424242424241", ...}'  → {"erro":"Pagamento recusado"} (Luhn inválido)
 $ NODE_ENV=production PAYMENT_GATEWAY_MODE=mock node src/app.js     → falha ao subir (fail-closed)
+
+# remoção do cache write-only (ver reports/audit-project-2.md)
+$ grep -rn "cacheService|RequestCache|globalCache" src/   → 0 ocorrências (arquivo removido)
+$ npm start → sobe normalmente; checkout/relatório/401 com o mesmo contrato de antes
 ```
 
-**Projeto 3** — autenticação real e controle de papéis:
+**Projeto 1** —fail-closed e error handling de fato centralizado:
+```
+$ APP_ENV=production python -c "from config.settings import Settings"
+  → RuntimeError: SECRET_KEY é obrigatório quando APP_ENV=production   (antes: subia com a chave do repo)
+$ curl -X POST /pedidos -d '{"itens":[{"produto_id":9999,"quantidade":1}]}'  → 404 (AppError no handler central)
+$ curl -X POST /pedidos -d '{"itens":[{"produto_id":6,"quantidade":99999}]}' → 400 (estoque insuficiente)
+$ curl -X POST /pedidos -d '{"itens":[{"produto_id":2,"quantidade":-5}]}'    → 400 "Quantidade deve ser maior que zero"
+                                                                               (antes: AUMENTAVA o estoque e gerava total negativo)
+$ curl -X DELETE /login  → 405 (antes o catch-all convertia em 500)
+```
+
+**Projeto 3** — autenticação real, controle de papéis e paginação + autorização por propriedade:
 ```
 Servidor iniciado em http://0.0.0.0:5000
 $ curl /tasks (sem token)  → 401
@@ -173,6 +190,24 @@ $ curl -X POST /login {"email":"joao@email.com","password":"1234"}
   → token assinado (itsdangerous), role "admin"
 $ curl /users (com token de usuário comum "maria")  → 403
 $ curl /users (com token de admin)  → lista completa, SEM campo "password"
+
+# paginação real (antes: .all() retornava a tabela inteira)
+$ curl "/tasks?page=1&per_page=3"  → itens: 3 | page: 1 | total: 10 | pages: 4
+$ curl "/tasks?page=2&per_page=3"  → ids [4,5,6]  (página realmente diferente)
+$ curl "/tasks?per_page=9999"      → per_page efetivo: 100  (teto MAX_PAGE_SIZE aplicado)
+$ curl "/tasks?page=abc"           → 400 "page e per_page devem ser numéricos"
+
+# escalada de privilégio fechada
+$ curl -X POST /users -d '{"role":"admin",...}'  (anônimo)  → 403  (antes: criava um admin)
+$ curl -X POST /users -d '{"name":"Normal",...}' (anônimo)  → 201 com role "user"
+$ curl -X PUT /users/1 -d '{"password":"hackeada"}' (token da Maria, role user) → 403
+                                                     (antes: trocava a senha do admin)
+$ curl -X PUT /users/2 -d '{"name":"..."}'          (Maria alterando a si mesma)  → 200
+$ curl -X POST /users -d '{"role":"admin",...}'     (token de admin)               → 201
+
+# db.create_all() não é mais efeito colateral de import
+$ rm -f instance/tasks.db && python -c "import app" && ls instance/tasks.db
+  → No such file or directory   (antes: importar o módulo já criava as tabelas)
 ```
 
 ### Observações sobre o comportamento em stacks diferentes

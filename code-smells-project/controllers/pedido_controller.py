@@ -3,7 +3,6 @@ from flask import jsonify, request
 from config.settings import Settings
 from models import pedido_model
 from services import notification_service, pedido_service, relatorio_service
-from services.pedido_service import EstoqueInsuficienteError, ProdutoNaoEncontradoError
 
 
 def criar_pedido():
@@ -16,12 +15,9 @@ def criar_pedido():
     if not itens:
         return jsonify({"erro": "Pedido deve ter pelo menos 1 item"}), 400
 
-    try:
-        resultado = pedido_service.criar_pedido(usuario_id, itens)
-    except (EstoqueInsuficienteError, ProdutoNaoEncontradoError) as e:
-        return jsonify({"erro": str(e), "sucesso": False}), 400
-
-    notification_service.notificar_novo_pedido(resultado["pedido_id"], usuario_id)
+    # Erros de domínio sobem como AppError e são traduzidos pelo handler central.
+    # A notificação é disparada dentro do service, junto da regra que a origina.
+    resultado = pedido_service.criar_pedido(usuario_id, itens)
     return jsonify({"dados": resultado, "sucesso": True, "mensagem": "Pedido criado com sucesso"}), 201
 
 
