@@ -1,5 +1,9 @@
 @baseUrl = http://localhost:3000
 
+# Token administrativo. Em desenvolvimento vale o default do config; em qualquer outro
+# ambiente defina ADMIN_TOKEN (a aplicação recusa subir sem ele) e ajuste aqui.
+@adminToken = dev-admin-token-change-me
+
 ### Checkout - sucesso (cartão de teste documentado, aprovado pelo mock)
 POST {{baseUrl}}/api/checkout
 Content-Type: application/json
@@ -36,10 +40,21 @@ Content-Type: application/json
   "card": "4242424242424241"
 }
 
+### Checkout - sem senha (deve retornar 400; antes criava conta com senha "123456")
+POST {{baseUrl}}/api/checkout
+Content-Type: application/json
+
+{
+  "usr": "SemSenha",
+  "eml": "semsenha@teste.com",
+  "c_id": 1,
+  "card": "4242424242424242"
+}
+
 ### Relatório financeiro administrativo (requer X-Admin-Token)
 GET {{baseUrl}}/api/admin/financial-report
-X-Admin-Token: dev-admin-token-change-me
+X-Admin-Token: {{adminToken}}
 
 ### Deletar usuário (requer X-Admin-Token)
 DELETE {{baseUrl}}/api/users/1
-X-Admin-Token: dev-admin-token-change-me
+X-Admin-Token: {{adminToken}}

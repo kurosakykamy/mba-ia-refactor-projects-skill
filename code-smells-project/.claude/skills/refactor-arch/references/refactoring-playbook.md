@@ -51,6 +51,9 @@ app.config.from_object(Settings)
 - [ ] Nenhum literal de segredo permanece no código — nem como valor direto, nem como default usado fora de desenvolvimento.
 - [ ] Subir com `APP_ENV=production` (ou equivalente) **sem** a variável definida falha explicitamente; testado de verdade, não presumido.
 - [ ] O segredo que estava commitado foi considerado comprometido (rotacionar no ambiente real; anotar isso no relatório mesmo que o exercício não permita rotacionar).
+- [ ] **Varredura exaustiva feita**: este checklist foi aplicado a **todos** os segredos/tokens do projeto, não só aos que algum finding nomeou. Um único default silencioso remanescente reabre o finding inteiro. (Ver "VARREDURA DE SEGREDOS" na Fase 3 do `SKILL.md`.)
+- [ ] **Reavaliação por consumo**: se esta refatoração introduziu assinatura de token/sessão ou autenticação, os segredos já existentes foram reclassificados — um fallback antes inócuo vira CRITICAL quando passa a assinar credencial.
+- [ ] **Config morta removida**: segredo sem nenhum consumidor no projeto foi **deletado** da config (padrão #13), não guardado — guardar o que ninguém lê só obriga o operador a configurar variável inútil.
 
 ## 2. Parametrizar queries SQL (eliminar concatenação)
 *(corrige anti-pattern #2)*

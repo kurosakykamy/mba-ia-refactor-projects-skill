@@ -1,12 +1,31 @@
+const nodeEnv = process.env.NODE_ENV || 'development';
+
+/**
+ * Fail-closed: fora de desenvolvimento, segredo ausente impede o boot.
+ *
+ * Um fallback silencioso faria a aplicação subir com o valor que está
+ * commitado no repositório — exatamente o problema que extrair para
+ * variável de ambiente deveria resolver. Como `adminToken` é a única
+ * autenticação da API, um default público daria acesso às rotas
+ * administrativas a qualquer leitor do repositório.
+ */
+function requiredSecret(name, devDefault) {
+    const value = process.env[name];
+    if (value) return value;
+    if (nodeEnv !== 'development') {
+        throw new Error(
+            `${name} é obrigatório quando NODE_ENV=${nodeEnv}. ` +
+            'Defina a variável de ambiente antes de subir a aplicação.',
+        );
+    }
+    return devDefault;
+}
+
 const settings = {
     port: parseInt(process.env.PORT || '3000', 10),
-    nodeEnv: process.env.NODE_ENV || 'development',
+    nodeEnv,
     paymentGatewayMode: process.env.PAYMENT_GATEWAY_MODE || 'mock',
-    dbUser: process.env.DB_USER || 'dev_user',
-    dbPass: process.env.DB_PASS || 'dev_pass_change_me',
-    paymentGatewayKey: process.env.PAYMENT_GATEWAY_KEY || 'pk_test_dev_key_change_me',
-    smtpUser: process.env.SMTP_USER || 'no-reply@example.com',
-    adminToken: process.env.ADMIN_TOKEN || 'dev-admin-token-change-me',
+    adminToken: requiredSecret('ADMIN_TOKEN', 'dev-admin-token-change-me'),
     bcryptSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || '10', 10),
 };
 

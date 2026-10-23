@@ -171,3 +171,27 @@ estoque, gerando um pedido com total negativo. Corrigido com `_validar_item()`.
 Aplicação sobe sem erros; `/health`, `/produtos`, `/pedidos` (criação válida), `/login` e os
 caminhos de erro (404/400/405) todos respondendo corretamente.
 ================================
+
+================================
+NOTA DE CORREÇÃO (ITERAÇÃO 4)
+================================
+Origem: terceira revisão do professor — que apontou segredos fail-open nos projetos 2 e 3.
+Este projeto não foi citado, mas a mesma varredura exaustiva foi aplicada aqui para fechar a
+pergunta "e o projeto 1?".
+
+### Inventário completo de segredos (varredura exaustiva)
+
+| Valor | Arquivo:linha | Classificação | Consumido em | Ação |
+|---|---|---|---|---|
+| `SECRET_KEY` | `config/settings.py:26` | **já FAIL-CLOSED** (corrigido na iteração 3) | `app.py:17` (assinatura do Flask) | Nenhuma — serviu de referência para os outros dois projetos |
+| `APP_ENV` | `config/settings.py:3` | NÃO-É-SEGREDO | gate do `_required_secret()` | — |
+| `DATABASE_PATH` | `config/settings.py:28` | NÃO-É-SEGREDO | `database.py` (sqlite local) | — |
+| `FLASK_DEBUG`, `HOST`, `PORT`, `CORS_ORIGINS` | `config/settings.py:27,29-31` | NÃO-É-SEGREDO | `app.py` | — |
+| Senhas de seed | `database.py:94-96` | literais de demonstração | seed do banco | Mantidas — hasheadas com `generate_password_hash`; avaliadas e registradas |
+
+Nenhum SMTP, token, chave de API ou salt existe neste projeto.
+
+Resultado: **nenhuma alteração necessária**. O helper `_required_secret()` deste arquivo
+(`config/settings.py:6-21`) é a implementação de referência que foi replicada no
+`task-manager-api` e adaptada para JS no `ecommerce-api-legacy` nesta iteração.
+================================

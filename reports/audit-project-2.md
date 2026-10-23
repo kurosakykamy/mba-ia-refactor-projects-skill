@@ -200,3 +200,65 @@ Evidência de que o finding está resolvido:
 Status: **finding fechado** — não há mais nenhuma estrutura de dados crescendo sem limite no
 projeto; o Impact deixou de existir por remoção, não por reorganização.
 ================================
+
+================================
+NOTA DE CORREÇÃO (ITERAÇÃO 4)
+================================
+Origem: terceira revisão do professor.
+
+Problema reportado: o finding "[CRITICAL] Hardcoded Credentials & Secrets" (acima) foi dado
+como corrigido ao mover os literais de `src/utils.js` para `src/config/settings.js`, mas o
+`adminToken` ficou como `process.env.ADMIN_TOKEN || 'dev-admin-token-change-me'` — **sem
+bloquear o boot**. Como esse token é a **única autenticação da API** (não há login, sessão nem
+JWT), protegendo `GET /api/admin/financial-report` e `DELETE /api/users/:id`
+(`src/routes/index.js:11-12`), um deploy sem a variável de ambiente expõe o relatório
+financeiro completo e a exclusão de usuários a quem apenas leia o repositório.
+
+Causa raiz: idêntica à do projeto 3 nesta mesma iteração — o padrão #1 do playbook já estava
+correto, mas foi aplicado apenas no `code-smells-project`. Corrigiu-se a instância nomeada no
+finding em vez de varrer todos os segredos do projeto.
+
+### Inventário completo de segredos deste projeto (varredura exaustiva)
+
+| Valor | Antes | Consumidores | Ação |
+|---|---|---|---|
+| `adminToken` | FAIL-OPEN | `src/middlewares/requireAdmin.js:5` (2 rotas administrativas) | **FAIL-CLOSED** via `requiredSecret()` |
+| `dbPass` | FAIL-OPEN | **nenhum** — o banco é `sqlite3(':memory:')` (`src/database/db.js:3`) | **Removido** |
+| `paymentGatewayKey` | FAIL-OPEN | **nenhum** — o `console.log` que a vazava foi removido na iteração 2 | **Removido** |
+| `dbUser` | — | nenhum | **Removido** (não é segredo e é config morta) |
+| `smtpUser` | — | nenhum | **Removido** (não é segredo e é config morta) |
+| `bcryptSaltRounds` | — | `checkoutService.js`, `models/schema.js` | NÃO-É-SEGREDO (fator de custo) |
+| `nodeEnv`, `paymentGatewayMode`, `port` | — | config/boot | NÃO-É-SEGREDO |
+
+**Por que as 4 entradas foram removidas em vez de guardadas:** a varredura confirmou zero
+consumidores para todas elas. Colocar uma guarda fail-closed em um segredo que nenhum código
+lê obrigaria o operador a definir variáveis de ambiente inúteis para conseguir subir a
+aplicação — o tratamento correto para config morta é remoção (padrão #13 do playbook), não
+proteção. Registrado aqui explicitamente para deixar claro que não é fuga do finding.
+
+### Credencial adicional corrigida (fora do módulo de config)
+
+`src/services/checkoutService.js:22` fazia `bcrypt.hash(password || '123456', ...)`: um
+checkout sem o campo `pwd` criava uma **conta real e logável com a senha `123456`**. Nenhuma
+guarda de config resolveria isso. Correção: o default foi removido e `pwd` passou a ser
+obrigatório na validação do controller (`src/controllers/checkoutController.js:7`).
+
+`api.http` também deixou de repetir o valor literal do token: agora usa a variável
+`@adminToken` declarada no topo do arquivo.
+
+### Evidência executada
+
+| Verificação | Resultado |
+|---|---|
+| `NODE_ENV=production node -e "require('./src/config/settings')"` | `Error: ADMIN_TOKEN é obrigatório quando NODE_ENV=production` |
+| idem, com `ADMIN_TOKEN` definido | passa a guarda do token (e cai na guarda de `PAYMENT_GATEWAY_MODE`, que também funciona) |
+| `NODE_ENV=production ADMIN_TOKEN=... PAYMENT_GATEWAY_MODE=real` | carrega normalmente |
+| `npm start` em dev | sobe normalmente |
+| Checkout **com** senha | 200 `{"msg":"Sucesso"}` |
+| Checkout **sem** senha | **400** `Campos obrigatórios: usr, eml, pwd, c_id (numérico), card` |
+| `/api/admin/financial-report` sem / com token | 401 / 200 |
+| `grep -rn "dbPass\|dbUser\|paymentGatewayKey\|smtpUser" src/` | 0 ocorrências |
+
+Status: **finding fechado** — o único segredo real do projeto é fail-closed, a config morta
+foi removida e não há mais credencial com valor conhecido criando contas.
+================================

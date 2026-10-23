@@ -179,3 +179,60 @@ Aplicação sobe sem erros; `/tasks` (paginado), `/tasks/stats`, `/tasks/search`
 `/reports/summary`, `/categories`, `/health` e `/login` todos respondendo; autorização por
 papel e por propriedade testada com tokens reais de admin e de usuário comum.
 ================================
+
+================================
+NOTA DE CORREÇÃO (ITERAÇÃO 4)
+================================
+Origem: terceira revisão do professor.
+
+Problema reportado: o finding "[CRITICAL] Segredos Hardcoded no Código-Fonte" (acima) foi dado
+como corrigido, mas `config/settings.py:9` ainda usava
+`os.environ.get("SECRET_KEY", "dev-only-insecure-key-change-me")` — **sem bloquear o boot**.
+Como a iteração 3 passou a usar essa mesma chave para assinar os tokens de autenticação
+(`middlewares/auth.py:12,21`, `URLSafeTimedSerializer`), qualquer pessoa que lesse o
+repositório podia gerar offline `serializer.dumps({'user_id': 1})` e autenticar como o admin
+João — sem login, sem rede, sem rate limit.
+
+Causa raiz: **não foi lacuna da skill.** O padrão #1 do playbook já estava correto desde a
+iteração 3, com bloco "Nunca faça isto" descrevendo exatamente este caso e checklist exigindo
+"nenhum literal de segredo... nem como default usado fora de desenvolvimento". O padrão foi
+aplicado no `code-smells-project` e **não** nos outros dois projetos. Falha de execução:
+corrigiu-se a instância que o finding nomeava, não a classe inteira — mesmo com a auditoria da
+iteração 3 tendo marcado este item como "PARTIAL (fail-open fallback)".
+
+Agravante documentado: a iteração 3 **aumentou** a severidade deste fallback sem reavaliá-lo.
+Antes de existir autenticação, a chave com default público era quase inócua; ao introduzir
+assinatura de token, o mesmo default virou "qualquer leitor do repo é admin".
+
+### Inventário completo de segredos deste projeto (varredura exaustiva)
+
+| Valor | Arquivo:linha | Antes | Consumido em | Ação |
+|---|---|---|---|---|
+| `SECRET_KEY` | `config/settings.py` | FAIL-OPEN | `middlewares/auth.py:12,21` (assina/valida token) | **FAIL-CLOSED** via `_required_secret()` |
+| `SMTP_PASSWORD` | `config/settings.py` | FAIL-OPEN | `services/notification_service.py:18` | **FAIL-CLOSED** via `_required_secret()` |
+| `SMTP_USER` | `config/settings.py` | — | `notification_service.py:18` | NÃO-É-SEGREDO (e-mail/usuário) |
+| `SMTP_HOST`, `SMTP_PORT` | `config/settings.py` | — | idem | NÃO-É-SEGREDO |
+| `DATABASE_URL` | `config/settings.py` | — | SQLAlchemy | NÃO-É-SEGREDO neste projeto (sqlite local, sem credencial embutida) |
+| `FLASK_DEBUG`, `HOST`, `PORT`, `CORS_ORIGINS` | `config/settings.py` | — | `app.py` | NÃO-É-SEGREDO |
+| Senhas de seed | `seed.py:21,28,35` | literais | dados de demonstração | Mantidas — hasheadas via `werkzeug.security`, esperadas num projeto didático; registradas aqui para constar que foram avaliadas |
+
+Correção aplicada: introduzido `APP_ENV` e o helper `_required_secret(name, dev_default)`
+**idêntico ao do `code-smells-project/config/settings.py`** (mesma assinatura, mesmo
+`RuntimeError`, mesmo gate `APP_ENV != "development"`), aplicado a `SECRET_KEY` e
+`SMTP_PASSWORD`.
+
+### Evidência executada
+
+| Verificação | Resultado |
+|---|---|
+| `APP_ENV=production python -c "from config.settings import Settings"` | `RuntimeError: SECRET_KEY é obrigatório quando APP_ENV=production` |
+| idem, com `SECRET_KEY` definida | `RuntimeError: SMTP_PASSWORD é obrigatório...` (o segundo segredo também é guardado) |
+| idem, com ambos definidos | carrega normalmente |
+| Fluxo dev documentado (`python seed.py` + `python app.py`) | intacto — seed popula, app sobe |
+| `/tasks` sem token / com token | 401 / 200 |
+| `/users` (admin), `/reports/summary`, `/health` | 200 |
+| `grep os.environ.get` com palavras de segredo | 0 ocorrências com default |
+
+Status: **finding fechado** — nenhum segredo deste projeto sobe com valor visível no
+repositório fora de desenvolvimento.
+================================

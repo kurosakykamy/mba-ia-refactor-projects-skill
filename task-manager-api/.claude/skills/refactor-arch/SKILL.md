@@ -56,13 +56,34 @@ Só execute esta fase após confirmação explícita do usuário na Fase 2.
 
    Cada padrão do playbook traz um bloco **"Nunca faça isto"** com a correção falsa típica daquele anti-pattern e um **checklist de aceite**. Consulte os dois antes de dar o finding por fechado. A tabela "O que significa 'fechado'" no fim do playbook resume as perguntas de fechamento por tipo de impacto.
 
-3. Garanta, ao final, que a estrutura resultante satisfaz o checklist de `references/architecture-guidelines.md` (config extraída, models por domínio, rotas finas, controllers concentrando o fluxo, error handling centralizado, entry point único) **e** que nenhuma regra de negócio crítica (pagamento, autorização, detecção de fraude) ainda decide por heurística trivial previsível.
-4. **Valide de verdade, não apenas por leitura de código:**
+3. **VARREDURA DE SEGREDOS (etapa obrigatória, independente dos findings).**
+
+   Corrigir apenas os segredos que algum finding nomeia **não basta** — basta um único segredo com default silencioso para o problema de credenciais hardcoded continuar existindo no projeto. Antes de encerrar a Fase 3, faça um inventário exaustivo:
+
+   1. Percorra o código de aplicação procurando por `SECRET`, `TOKEN`, `PASSWORD`, `PASS`, `KEY`, `CREDENTIAL`, `API_KEY`, `SALT`, `AUTH` (ignore dependências instaladas, caches e a pasta `.claude/`). Inclua o que estiver fora do módulo de config.
+   2. Classifique **cada** valor encontrado em uma tabela — nenhum item pode ficar sem classificação:
+
+      | Valor | Arquivo:linha | Classificação | Consumido em | Ação |
+      |---|---|---|---|---|
+      | … | … | `FAIL-CLOSED` / `FAIL-OPEN` / `NÃO-É-SEGREDO` | … | … |
+
+      - **FAIL-CLOSED** — a ausência da variável de ambiente impede o boot. É o estado desejado.
+      - **FAIL-OPEN** — existe um default no código que permite subir com um valor visível no repositório. **Precisa ser corrigido**, mesmo que nenhum finding o tenha citado.
+      - **NÃO-É-SEGREDO** — porta, host, nome de usuário, e-mail, flag de modo. Não precisa da guarda, mas precisa estar classificado para provar que foi avaliado.
+   3. Aplique o checklist do **padrão #1** do playbook a todo item classificado como segredo.
+
+   Duas regras que mudam a classificação:
+   - **Reavalie ao introduzir autenticação.** Um segredo fail-open que antes era inócuo vira **CRITICAL** no momento em que a refatoração passa a usá-lo para assinar token/sessão ou como única autenticação — porque qualquer leitor do repositório passa a conseguir forjar credencial. Se esta Fase 3 introduziu assinatura, sessão ou token, reclassifique os segredos existentes **antes** de encerrar.
+   - **Segredo sem consumidor é código morto.** Se a varredura mostrar que nada no projeto lê aquele valor, a ação correta é **remover a entrada de config** (padrão #13), não adicionar uma guarda — guardar um segredo que ninguém usa obriga o operador a configurar uma variável inútil.
+
+4. Garanta, ao final, que a estrutura resultante satisfaz o checklist de `references/architecture-guidelines.md` (config extraída, models por domínio, rotas finas, controllers concentrando o fluxo, error handling centralizado, entry point único) **e** que nenhuma regra de negócio crítica (pagamento, autorização, detecção de fraude) ainda decide por heurística trivial previsível.
+5. **Valide de verdade, não apenas por leitura de código:**
    - Suba a aplicação com o comando real do projeto (ex.: `python app.py`, `npm start`).
    - Confirme que ela inicia sem erro/exceção no log de boot.
    - Faça pelo menos uma chamada real (curl/requests/http client) a um subconjunto representativo dos endpoints originais e confirme que respondem com o status/formato esperado.
    - Encerre o processo do servidor ao final da validação.
-5. Imprima o resumo final:
+   - Se a Fase 3 tornou algum segredo fail-closed, **teste a guarda de fato**: suba com a variável de ambiente ausente em modo não-desenvolvimento e confirme que a aplicação recusa iniciar.
+6. Imprima o resumo final:
    ```
    ================================
    PHASE 3: REFACTORING COMPLETE
@@ -76,10 +97,14 @@ Só execute esta fase após confirmação explícita do usuário na Fase 2.
      ✓ Zero anti-patterns remaining (ou lista do que ficou pendente e por quê)
      ✓ No simulated critical business logic remains reachable in production mode
      ✓ Every finding's Impact verified as no longer reproducible (not just restructured)
+     ✓ Secret sweep: every secret/token classified; zero FAIL-OPEN defaults remaining
 
-   Para o último item, liste cada finding com a verificação concreta que foi executada, no formato
+   Para o penúltimo item, liste cada finding com a verificação concreta que foi executada, no formato
    `[SEVERIDADE] nome do finding → verificação: <comando/teste> → resultado`. Findings cujo Impact
    não pôde ser verificado devem aparecer como **PENDENTE**, nunca como resolvidos.
+
+   Para o último item, inclua a tabela de inventário de segredos montada no passo 3 — todos os
+   valores encontrados, classificados, com a ação tomada em cada um.
    ================================
    ```
 

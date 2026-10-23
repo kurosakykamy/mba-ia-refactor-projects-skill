@@ -75,6 +75,8 @@ A skill vive em `.claude/skills/refactor-arch/` (criada dentro de `code-smells-p
 4. *Regra de negócio crítica simulada "corrigida" só na localização*: a Fase 2 do projeto 2 classificou corretamente como CRITICAL a aprovação de pagamento por prefixo de cartão (`cc.startsWith("4")`), mas a primeira versão da Fase 3 só moveu essa linha para `paymentGatewayService.js`, sem alterar o comportamento — qualquer cartão começando com "4" continuava aprovando. Causa raiz: o catálogo não tinha uma entrada para "regra de negócio crítica simulada", então a Fase 3 aplicou o tratamento genérico mais próximo (isolar em módulo). Corrigido com o anti-pattern **#14** e o playbook **#14** (validação real via algoritmo de Luhn + aprovação restrita a um conjunto fixo de cartões de teste documentados + guarda *fail-closed* que recusa subir em `NODE_ENV=production` com o modo simulado ligado).
 5. *O padrão de falha por trás do desafio anterior — "resolve a forma, não o Impact"*: uma segunda revisão apontou que o finding HIGH do `globalCache` (projeto 2) recomendava "cache com TTL ou tamanho máximo", mas o `cacheService.js` gerado era um `Map` singleton sem nenhum dos dois — e o playbook mencionava TTL apenas em um *comentário*, não no código do exemplo. Na reauditoria encontrei um agravante: o cache era **write-only** (`set()` chamado, `get()` sem nenhum call site), então a correção certa não era limitar e sim **remover**. Reconhecendo que essa era a segunda instância da mesma classe de erro, parei de corrigir caso a caso e fiz uma **auditoria sistemática dos 14 padrões do playbook e dos 3 projetos**, comparando o campo `Impact` de cada finding contra o que o código realmente faz. Resultado: 7 padrões delegavam a mudança de comportamento a algo não mostrado no exemplo (um validador inexistente no #3, um comentário sobre TTL no #10, uma árvore de pastas no #4), e 8 findings dados como fechados tinham o Impact intacto ou parcial — incluindo paginação nunca implementada e `db.create_all()` ainda rodando no import (projeto 3), `SECRET_KEY` fail-open (projeto 1), e duas brechas de escalada de privilégio (projeto 3: registro anônimo aceitando `role=admin`, e troca de senha de terceiros). A correção estrutural foi tornar o critério comportamental **explícito e geral**: cada padrão fraco ganhou um bloco "Nunca faça isto" (mostrando a correção falsa típica daquele anti-pattern) e um checklist de aceite; a Fase 3 do `SKILL.md` ganhou uma **REGRA DE FECHAMENTO** que exige declarar e *executar* uma verificação concreta por finding — para CRITICAL/HIGH, verificada de fato, não presumida por leitura de código. Evidências nas "Notas de correção" dos três relatórios em `reports/`.
 
+6. *Corrigir a instância que o finding nomeia ≠ corrigir a classe no projeto inteiro*: uma terceira revisão apontou que o `SECRET_KEY` do projeto 3 e o `adminToken` do projeto 2 continuavam com default silencioso (`os.environ.get(..., "dev-...")` / `process.env.X || '...'`), apesar de o padrão #1 do playbook **já estar correto** desde o desafio anterior. Eu havia aplicado o fail-closed só no `code-smells-project`. Não foi lacuna de conhecimento da skill — foi falha de execução: tratei o segredo que o finding citava e não varri os demais. Dois agravantes que esse descuido produziu: no projeto 3, a própria refatoração anterior passou a usar o `SECRET_KEY` para **assinar os tokens de autenticação**, transformando um fallback antes quase inócuo em "qualquer leitor do repositório forja um token de admin"; no projeto 2, o `adminToken` é a **única** autenticação da API. Correção estrutural: a Fase 3 ganhou uma etapa obrigatória de **varredura de segredos** independente dos findings — grep por `SECRET|TOKEN|PASSWORD|KEY|SALT|AUTH` em todo o código de aplicação, com uma tabela de inventário onde cada valor encontrado precisa ser classificado como `FAIL-CLOSED`, `FAIL-OPEN` ou `NÃO-É-SEGREDO`, mais duas regras novas: *reavaliar segredos sempre que a refatoração introduzir autenticação* (o consumo muda a severidade) e *segredo sem consumidor deve ser removido, não guardado*. Essa última resolveu 4 entradas de config mortas no projeto 2 (`dbUser`, `dbPass`, `paymentGatewayKey`, `smtpUser` — nenhuma lida por código algum). Inventários completos nas "Notas de correção (iteração 4)" dos três relatórios.
+
 ## C) Resultados
 
 ### Resumo dos relatórios de auditoria
@@ -169,6 +171,13 @@ $ NODE_ENV=production PAYMENT_GATEWAY_MODE=mock node src/app.js     → falha ao
 # remoção do cache write-only (ver reports/audit-project-2.md)
 $ grep -rn "cacheService|RequestCache|globalCache" src/   → 0 ocorrências (arquivo removido)
 $ npm start → sobe normalmente; checkout/relatório/401 com o mesmo contrato de antes
+
+# iteração 4 — adminToken fail-closed + config morta removida + senha obrigatória
+$ NODE_ENV=production node -e "require('./src/config/settings')"
+  → Error: ADMIN_TOKEN é obrigatório quando NODE_ENV=production   (antes: subia com o token do repo)
+$ curl -X POST /api/checkout -d '{"usr":"X","eml":"x@x.com","c_id":1,"card":"4242..."}'   (sem pwd)
+  → 400 "Campos obrigatórios: ... pwd ..."   (antes: criava conta real com senha "123456")
+$ grep -rn "dbPass|dbUser|paymentGatewayKey|smtpUser" src/  → 0 ocorrências (config morta removida)
 ```
 
 **Projeto 1** —fail-closed e error handling de fato centralizado:
@@ -208,6 +217,14 @@ $ curl -X POST /users -d '{"role":"admin",...}'     (token de admin)            
 # db.create_all() não é mais efeito colateral de import
 $ rm -f instance/tasks.db && python -c "import app" && ls instance/tasks.db
   → No such file or directory   (antes: importar o módulo já criava as tabelas)
+
+# iteração 4 — SECRET_KEY/SMTP_PASSWORD fail-closed (a chave assina os tokens de auth)
+$ APP_ENV=production python -c "from config.settings import Settings"
+  → RuntimeError: SECRET_KEY é obrigatório quando APP_ENV=production
+$ APP_ENV=production SECRET_KEY=abc python -c "from config.settings import Settings"
+  → RuntimeError: SMTP_PASSWORD é obrigatório...   (o segundo segredo também é guardado)
+$ APP_ENV=production SECRET_KEY=abc SMTP_PASSWORD=xyz python -c "..."  → carrega normalmente
+$ python seed.py && python app.py  → fluxo dev intacto; /tasks 401 sem token, 200 com token
 ```
 
 ### Observações sobre o comportamento em stacks diferentes

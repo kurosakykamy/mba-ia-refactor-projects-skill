@@ -19,7 +19,9 @@ async function checkout({ name, email, password, courseId, cardNumber }) {
     const existingUser = await userModel.findByEmail(email);
     let userId;
     if (!existingUser) {
-        const passwordHash = await bcrypt.hash(password || '123456', settings.bcryptSaltRounds);
+        // Sem default: criar conta com senha conhecida ('123456') deixaria uma
+        // credencial válida e pública para a conta recém-criada.
+        const passwordHash = await bcrypt.hash(password, settings.bcryptSaltRounds);
         userId = await userModel.create(name, email, passwordHash);
     } else {
         userId = existingUser.id;

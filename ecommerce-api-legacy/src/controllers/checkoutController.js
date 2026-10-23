@@ -4,8 +4,8 @@ async function checkout(req, res, next) {
     const { usr: name, eml: email, pwd: password, c_id: courseIdRaw, card: cardNumber } = req.body;
     const courseId = Number(courseIdRaw);
 
-    if (!name || !email || !cardNumber || !Number.isInteger(courseId)) {
-        return res.status(400).json({ erro: 'Campos obrigatórios: usr, eml, c_id (numérico), card' });
+    if (!name || !email || !password || !cardNumber || !Number.isInteger(courseId)) {
+        return res.status(400).json({ erro: 'Campos obrigatórios: usr, eml, pwd, c_id (numérico), card' });
     }
 
     try {
