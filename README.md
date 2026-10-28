@@ -77,6 +77,8 @@ A skill vive em `.claude/skills/refactor-arch/` (criada dentro de `code-smells-p
 
 6. *Corrigir a instância que o finding nomeia ≠ corrigir a classe no projeto inteiro*: uma terceira revisão apontou que o `SECRET_KEY` do projeto 3 e o `adminToken` do projeto 2 continuavam com default silencioso (`os.environ.get(..., "dev-...")` / `process.env.X || '...'`), apesar de o padrão #1 do playbook **já estar correto** desde o desafio anterior. Eu havia aplicado o fail-closed só no `code-smells-project`. Não foi lacuna de conhecimento da skill — foi falha de execução: tratei o segredo que o finding citava e não varri os demais. Dois agravantes que esse descuido produziu: no projeto 3, a própria refatoração anterior passou a usar o `SECRET_KEY` para **assinar os tokens de autenticação**, transformando um fallback antes quase inócuo em "qualquer leitor do repositório forja um token de admin"; no projeto 2, o `adminToken` é a **única** autenticação da API. Correção estrutural: a Fase 3 ganhou uma etapa obrigatória de **varredura de segredos** independente dos findings — grep por `SECRET|TOKEN|PASSWORD|KEY|SALT|AUTH` em todo o código de aplicação, com uma tabela de inventário onde cada valor encontrado precisa ser classificado como `FAIL-CLOSED`, `FAIL-OPEN` ou `NÃO-É-SEGREDO`, mais duas regras novas: *reavaliar segredos sempre que a refatoração introduzir autenticação* (o consumo muda a severidade) e *segredo sem consumidor deve ser removido, não guardado*. Essa última resolveu 4 entradas de config mortas no projeto 2 (`dbUser`, `dbPass`, `paymentGatewayKey`, `smtpUser` — nenhuma lida por código algum). Inventários completos nas "Notas de correção (iteração 4)" dos três relatórios.
 
+7. *Relatório e código não podem discordar — e "público por design" ainda pode esconder furo de auth*: o finding CRITICAL de autenticação do projeto 2 listava três rotas, incluindo `POST /api/checkout`, e eu protegi só as duas administrativas, justificando a exceção **neste README** (era o item 2 desta lista). Uma quarta revisão apontou o óbvio: a parte "qualquer anônimo pode criar contas" do Impact continuava verdadeira, e quem lia o relatório via um problema que o código não resolveu. A decisão de produto estava certa — compra self-service anônima é o fluxo normal de um e-commerce —, mas o lugar de registrá-la era o **relatório**, não um documento externo. Ao revisar o código para corrigir isso, encontrei um vetor real que estava escondido dentro do "checkout público": quando o e-mail já existia, `checkoutService.js` reutilizava o `id` da conta **sem verificar nada**, então um anônimo que soubesse o e-mail da vítima gerava matrícula e pagamento no nome dela. Ou seja: a rota era legitimamente pública *e* tinha uma falha de autenticação — as duas coisas ao mesmo tempo. Correção: autenticação **opcional** (e-mail novo → compra anônima segue funcionando; e-mail existente → exige token do próprio dono, 401 caso contrário), com login JWT introduzido no projeto. E duas regras novas na skill: a Fase 2 passa a classificar cada rota em *precisa de auth* / *pública por design* / *pública mas age sobre dado existente* (esta última exige prova de posse), e a Fase 3 fica **proibida de estreitar escopo em silêncio** — se concluir que um finding está mis-escopado, tem de emendá-lo no próprio relatório, dando destino explícito a cada local listado.
+
 ## C) Resultados
 
 ### Resumo dos relatórios de auditoria
@@ -178,6 +180,18 @@ $ NODE_ENV=production node -e "require('./src/config/settings')"
 $ curl -X POST /api/checkout -d '{"usr":"X","eml":"x@x.com","c_id":1,"card":"4242..."}'   (sem pwd)
   → 400 "Campos obrigatórios: ... pwd ..."   (antes: criava conta real com senha "123456")
 $ grep -rn "dbPass|dbUser|paymentGatewayKey|smtpUser" src/  → 0 ocorrências (config morta removida)
+
+# iteração 5 — auth opcional no checkout (ver emenda do finding em reports/audit-project-2.md)
+$ curl -X POST /api/checkout -d '{"eml":"novo@x.com","pwd":"...","c_id":2,"card":"4242..."}'
+  → 200  (compra anônima com e-mail novo: fluxo de produto preservado)
+$ curl -X POST /api/checkout -d '{"eml":"gui@fc.com.br", ...}'          (e-mail já cadastrado, sem token)
+  → 401  "Este e-mail já possui conta..."   (antes: criava matrícula/pagamento no nome da vítima)
+$ curl -X POST /api/login -d '{"eml":"gui@fc.com.br","pwd":"senhaforte"}'  → 200 + JWT assinado
+$ curl -X POST /api/checkout -H "Authorization: Bearer <token do dono>" ...  → 200 (recompra legítima)
+$ curl -X POST /api/checkout -H "Authorization: Bearer <token de OUTRO>" ... → 401
+  (não basta estar logado — tem que ser o dono do e-mail)
+$ NODE_ENV=production node -e "require('./src/config/settings')"  (sem AUTH_TOKEN_SECRET)
+  → Error: AUTH_TOKEN_SECRET é obrigatório...   (segredo novo já nasce fail-closed)
 ```
 
 **Projeto 1** —fail-closed e error handling de fato centralizado:

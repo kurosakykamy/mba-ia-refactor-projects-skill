@@ -11,8 +11,16 @@ const { run } = require('../database/db');
 
 class CourseNotFoundError extends Error {}
 class PaymentDeniedError extends Error {}
+class AuthenticationRequiredError extends Error {}
 
-async function checkout({ name, email, password, courseId, cardNumber }) {
+/**
+ * Checkout com autenticação OPCIONAL:
+ * - e-mail não cadastrado  → cria a conta (compra anônima, fluxo de autoatendimento);
+ * - e-mail cadastrado e o chamador É o dono → recompra legítima;
+ * - e-mail cadastrado sem token do dono → 401. Sem isso, qualquer anônimo que
+ *   soubesse o e-mail da vítima geraria matrícula e pagamento no nome dela.
+ */
+async function checkout({ name, email, password, courseId, cardNumber, authenticatedUserId }) {
     const course = await courseModel.findActiveById(courseId);
     if (!course) throw new CourseNotFoundError('Curso não encontrado');
 
@@ -23,8 +31,12 @@ async function checkout({ name, email, password, courseId, cardNumber }) {
         // credencial válida e pública para a conta recém-criada.
         const passwordHash = await bcrypt.hash(password, settings.bcryptSaltRounds);
         userId = await userModel.create(name, email, passwordHash);
-    } else {
+    } else if (authenticatedUserId && authenticatedUserId === existingUser.id) {
         userId = existingUser.id;
+    } else {
+        throw new AuthenticationRequiredError(
+            'Este e-mail já possui conta. Autentique-se em POST /api/login para comprar com ele.',
+        );
     }
 
     const { status } = paymentGatewayService.charge(cardNumber);
@@ -45,4 +57,4 @@ async function checkout({ name, email, password, courseId, cardNumber }) {
     return { enrollmentId, userId };
 }
 
-module.exports = { checkout, CourseNotFoundError, PaymentDeniedError };
+module.exports = { checkout, CourseNotFoundError, PaymentDeniedError, AuthenticationRequiredError };

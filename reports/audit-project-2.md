@@ -262,3 +262,76 @@ obrigatório na validação do controller (`src/controllers/checkoutController.j
 Status: **finding fechado** — o único segredo real do projeto é fail-closed, a config morta
 foi removida e não há mais credencial com valor conhecido criando contas.
 ================================
+
+================================
+EMENDA DE FINDING + NOTA DE CORREÇÃO (ITERAÇÃO 5)
+================================
+Origem: quarta revisão do professor.
+
+Problema reportado: o finding "[CRITICAL] Missing Authentication/Authorization em 3 Rotas"
+lista `POST /api/checkout` junto com as duas rotas administrativas e declara no Impact que
+"qualquer chamador anônimo pode **criar contas**, ver receita... e apagar qualquer usuário".
+A Fase 3 protegeu só as duas rotas administrativas e deixou o checkout público, registrando
+essa decisão **apenas no README**. Resultado: a parte "criar contas" do Impact seguia
+reproduzível e o relatório contradizia o código.
+
+Causa raiz (duas, complementares):
+1. **A Fase 2 mis-escopou o finding**, juntando um fluxo legitimamente público (compra
+   self-service — a rota original foi escrita justamente para criar o usuário no ato da
+   compra) com duas rotas administrativas genuinamente desprotegidas.
+2. **A Fase 3 estreitou o escopo em silêncio.** A conclusão de não exigir login no checkout
+   era correta do ponto de vista de produto, mas foi registrada em documento externo em vez
+   de emendar o finding. Desvio documentado fora do relatório não fecha finding.
+
+### EMENDA FORMAL DO FINDING
+
+O finding original fica preservado acima como registro histórico. Seu escopo correto é:
+
+| Rota | Classificação | Destino |
+|---|---|---|
+| `GET /api/admin/financial-report` | **Falha real** — relatório financeiro sem auth | **Fechada** com `requireAdmin` (iteração 2). Evidência: 401 sem token / 200 com token |
+| `DELETE /api/users/:id` | **Falha real** — exclusão destrutiva sem auth | **Fechada** com `requireAdmin` (iteração 2). Evidência: 401 sem token / 200 com token |
+| `POST /api/checkout` — criação de **conta nova** | **Fora do escopo: comportamento esperado do produto.** Compra self-service anônima é o fluxo normal de um e-commerce/LMS. Exigir login aqui eliminaria a funcionalidade, não uma vulnerabilidade | **Removida do finding**, com justificativa |
+| `POST /api/checkout` — e-mail **já cadastrado** | **Falha real que estava escondida dentro do item acima.** Não é "falta middleware": é ausência de **prova de posse**. `checkoutService.js` reutilizava `existingUser.id` sem verificar nada, então um anônimo que soubesse o e-mail da vítima gerava matrícula e pagamento no nome dela | **Fechada** nesta iteração (abaixo) |
+
+### Correção aplicada — autenticação opcional
+
+Introduzido login de usuário (o projeto só tinha o token estático de admin):
+- `src/services/authService.js` — token **JWT HS256 com expiração de 24h** via `jsonwebtoken`
+  (biblioteca padrão, não construção caseira); login compara a senha com `bcrypt.compare` e
+  devolve a mesma mensagem para usuário inexistente e senha errada, para não servir de
+  oráculo de enumeração de e-mails.
+- `src/middlewares/resolveUser.js` — autenticação **opcional**: popula `req.currentUser` se
+  houver token válido e **não rejeita** quando não há. É isso que mantém a rota pública para
+  quem está criando conta.
+- `src/controllers/authController.js` + rota `POST /api/login`.
+- `src/config/settings.js` — `AUTH_TOKEN_SECRET` com a mesma guarda fail-closed da iteração 4.
+- `src/services/checkoutService.js` — regra de três caminhos: e-mail novo → cria conta;
+  e-mail existente **com** token do próprio dono → recompra legítima; e-mail existente **sem**
+  token do dono → `AuthenticationRequiredError` (401).
+- `src/controllers/checkoutController.js` — `pwd` passa a ser exigido apenas de quem **não**
+  está autenticado (criar conta precisa de senha; recomprar autenticado, não).
+
+### Evidência executada
+
+| # | Cenário | Resultado |
+|---|---|---|
+| 1 | Compra anônima, e-mail novo | **200** — fluxo de produto preservado |
+| 2 | Recompra **sem** token, e-mail já cadastrado | **401** — *antes criava matrícula no nome da vítima* |
+| 3 | Login do dono (`POST /api/login`) | **200** com JWT assinado |
+| 4 | Recompra **com** token do próprio dono | **200** |
+| 5 | Token válido de **outro** usuário comprando com e-mail alheio | **401** — prova que não basta estar logado, tem que ser o dono |
+| 6 | Login com senha errada | **401** `Credenciais inválidas` |
+| 7 | Checkout sem `pwd` e sem token | **400** (regressão da iteração 4 intacta) |
+| 8 | Rotas admin sem / com `X-Admin-Token` | **401 / 200** |
+| 9 | `NODE_ENV=production` sem `AUTH_TOKEN_SECRET` | aplicação **recusa subir** (o segredo novo já nasce sob a regra da iteração 4) |
+
+### Limitações e riscos residuais registrados
+- **Criação de conta em massa**: o endpoint público de checkout permite criar contas sem
+  limite. Mitigação adequada seria rate limiting por IP, fora do escopo desta entrega.
+- O token JWT é simétrico e não tem mecanismo de revogação antes da expiração de 24h.
+
+Status: **finding emendado e fechado** — cada uma das rotas que o finding original listava
+tem destino explícito, e o vetor real que estava escondido dentro do "checkout público" foi
+eliminado e verificado.
+================================

@@ -26,6 +26,8 @@ const settings = {
     nodeEnv,
     paymentGatewayMode: process.env.PAYMENT_GATEWAY_MODE || 'mock',
     adminToken: requiredSecret('ADMIN_TOKEN', 'dev-admin-token-change-me'),
+    authTokenSecret: requiredSecret('AUTH_TOKEN_SECRET', 'dev-only-auth-secret-change-me'),
+    authTokenExpiresIn: process.env.AUTH_TOKEN_EXPIRES_IN || '24h',
     bcryptSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || '10', 10),
 };
 

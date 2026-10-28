@@ -9,6 +9,10 @@ async function findByEmail(email) {
     return get('SELECT * FROM users WHERE email = ?', [email]);
 }
 
+async function findById(id) {
+    return get('SELECT * FROM users WHERE id = ?', [id]);
+}
+
 async function create(name, email, passwordHash) {
     const { lastID } = await run(
         'INSERT INTO users (name, email, pass) VALUES (?, ?, ?)',
@@ -22,4 +26,4 @@ async function remove(id) {
     return changes > 0;
 }
 
-module.exports = { findByEmail, create, remove, toPublic };
+module.exports = { findByEmail, findById, create, remove, toPublic };

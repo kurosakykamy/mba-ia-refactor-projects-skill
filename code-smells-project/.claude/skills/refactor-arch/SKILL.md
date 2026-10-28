@@ -30,6 +30,17 @@ Não avance para a Fase 2 sem ter examinado o conteúdo real de cada arquivo-fon
 
 1. Releia cada arquivo-fonte do projeto e cruze contra **todo** o catálogo em `references/anti-patterns-catalog.md` (os 13 anti-patterns + a tabela de APIs deprecated), mesmo que o projeto já pareça parcialmente organizado.
 2. Para cada achado, registre: anti-pattern do catálogo, severidade, arquivo e linha(s) exatas, descrição concreta, impacto e recomendação acionável (ver regras de preenchimento em `references/report-template.md`).
+
+   **ESCOPO DE FINDINGS DE AUTENTICAÇÃO.** Antes de escrever um finding de auth, classifique **cada rota** em uma destas três categorias:
+
+   | Categoria | Exemplos | Vai para o finding? |
+   |---|---|---|
+   | **Precisa de auth** | ação administrativa, destrutiva, relatório financeiro, alterar/apagar recurso de terceiro | **Sim** — é falha |
+   | **Pública por design** | cadastro self-service, checkout de autoatendimento, catálogo, o próprio login, health check | **Não** — é comportamento esperado do produto. Registre no relatório, em uma linha, que a rota foi avaliada e é intencionalmente pública |
+   | **Pública, mas age sobre dado existente** | checkout que aceita e-mail já cadastrado; "recuperar pedido" por identificador adivinhável | **Sim**, mas o finding **não** é "falta middleware" — é **ausência de prova de posse** sobre o recurso tocado. Redija sobre esse vetor específico |
+
+   Regra de redação: um finding de auth lista **apenas** as rotas que de fato devem ser protegidas. Misturar um fluxo público legítimo com rotas administrativas produz um `Impact` que não pode ser eliminado por inteiro — e empurra a Fase 3 para a escolha falsa entre quebrar o produto ou deixar o finding aberto.
+
 3. Monte o relatório completo seguindo **exatamente** `references/report-template.md`, ordenado por severidade (CRITICAL → HIGH → MEDIUM → LOW).
 4. Garanta um mínimo de 5 findings, com pelo menos 1 CRITICAL ou HIGH, 2 MEDIUM e 2 LOW — se o catálogo não render isso num projeto muito limpo, aprofunde a revisão (duplicação sutil, dependências mortas, nomes ruins) antes de concluir que não há mais nada.
 5. Salve o relatório em `reports/audit-project-N.md` na raiz do repositório principal (não dentro do projeto-alvo), onde N é o número do projeto sendo auditado nesta execução.
@@ -55,6 +66,14 @@ Só execute esta fase após confirmação explícita do usuário na Fase 2.
    4. Se a verificação não passar, o finding continua aberto — relate como pendente no resumo final em vez de marcá-lo como resolvido.
 
    Cada padrão do playbook traz um bloco **"Nunca faça isto"** com a correção falsa típica daquele anti-pattern e um **checklist de aceite**. Consulte os dois antes de dar o finding por fechado. A tabela "O que significa 'fechado'" no fim do playbook resume as perguntas de fechamento por tipo de impacto.
+
+   **PROIBIDO ESTREITAR ESCOPO EM SILÊNCIO.** Um finding que lista N locais só é fechado quando os N forem tratados — **ou** quando o finding for formalmente **emendado no próprio relatório**. Justificar o desvio em documentação externa (README, changelog, mensagem de commit, comentário no código) **não** fecha finding: quem lê o relatório continua vendo um `Impact` que o código não eliminou.
+
+   Se durante a Fase 3 você concluir que a recomendação de um finding é inaplicável no todo ou em parte (por exemplo: a Fase 2 classificou como falha algo que é comportamento esperado do produto):
+   1. **Emende o finding em `reports/audit-project-N.md`**, com o escopo correto e a justificativa. Mantenha o texto original visível como histórico e marque a emenda claramente.
+   2. Dê destino explícito a **cada** local que o finding original listava: *fechado* (com a verificação) ou *removido do escopo* (com a justificativa).
+   3. Só então feche o finding emendado.
+   4. Registre a emenda no resumo final da Fase 3.
 
 3. **VARREDURA DE SEGREDOS (etapa obrigatória, independente dos findings).**
 
@@ -98,6 +117,7 @@ Só execute esta fase após confirmação explícita do usuário na Fase 2.
      ✓ No simulated critical business logic remains reachable in production mode
      ✓ Every finding's Impact verified as no longer reproducible (not just restructured)
      ✓ Secret sweep: every secret/token classified; zero FAIL-OPEN defaults remaining
+     ✓ No finding was silently narrowed — scope changes are amended in the report itself
 
    Para o penúltimo item, liste cada finding com a verificação concreta que foi executada, no formato
    `[SEVERIDADE] nome do finding → verificação: <comando/teste> → resultado`. Findings cujo Impact

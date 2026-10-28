@@ -51,6 +51,43 @@ Content-Type: application/json
   "card": "4242424242424242"
 }
 
+### Login de usuário (devolve token JWT para recompra)
+# @name login
+POST {{baseUrl}}/api/login
+Content-Type: application/json
+
+{
+  "eml": "gui@fullcycle.com.br",
+  "pwd": "senhaforte"
+}
+
+### Recompra SEM token (e-mail já cadastrado → 401)
+# Antes desta correção, isto criava matrícula e pagamento no nome do dono do e-mail,
+# sem nenhuma prova de posse da conta.
+POST {{baseUrl}}/api/checkout
+Content-Type: application/json
+
+{
+  "usr": "Impostor",
+  "eml": "gui@fullcycle.com.br",
+  "pwd": "qualquer",
+  "c_id": 1,
+  "card": "4242424242424242"
+}
+
+### Recompra COM token do próprio dono (→ 200)
+# Rode o "Login de usuário" acima primeiro para preencher {{login.response.body.token}}.
+POST {{baseUrl}}/api/checkout
+Content-Type: application/json
+Authorization: Bearer {{login.response.body.token}}
+
+{
+  "usr": "Guilherme",
+  "eml": "gui@fullcycle.com.br",
+  "c_id": 1,
+  "card": "4242424242424242"
+}
+
 ### Relatório financeiro administrativo (requer X-Admin-Token)
 GET {{baseUrl}}/api/admin/financial-report
 X-Admin-Token: {{adminToken}}

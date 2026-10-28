@@ -1,5 +1,10 @@
-const { CourseNotFoundError, PaymentDeniedError } = require('../services/checkoutService');
+const {
+    CourseNotFoundError,
+    PaymentDeniedError,
+    AuthenticationRequiredError,
+} = require('../services/checkoutService');
 const { PaymentGatewayNotConfiguredError } = require('../services/paymentGatewayService');
+const { InvalidCredentialsError } = require('../services/authService');
 
 function errorHandler(err, req, res, next) { // eslint-disable-line no-unused-vars
     if (err instanceof CourseNotFoundError) {
@@ -7,6 +12,9 @@ function errorHandler(err, req, res, next) { // eslint-disable-line no-unused-va
     }
     if (err instanceof PaymentDeniedError) {
         return res.status(400).json({ erro: err.message });
+    }
+    if (err instanceof AuthenticationRequiredError || err instanceof InvalidCredentialsError) {
+        return res.status(401).json({ erro: err.message });
     }
     if (err instanceof PaymentGatewayNotConfiguredError) {
         return res.status(503).json({ erro: err.message });

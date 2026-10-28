@@ -155,12 +155,35 @@ if target_user_id != request.current_user.id and not request.current_user.is_adm
 role = "user" if not request.current_user.is_admin() else data.get("role", "user")
 ```
 
+**Endpoint público por design ainda pode ter furo de auth.** Uma rota pode ser legitimamente anônima (cadastro, checkout de autoatendimento) e mesmo assim precisar de **prova de posse** quando toca um recurso que já existe. O caso clássico:
+
+```javascript
+// Antes — checkout público que, se o e-mail já existe, age sobre a conta alheia
+const existingUser = await userModel.findByEmail(email);
+const userId = existingUser ? existingUser.id : await userModel.create(...);
+// um anônimo que saiba o e-mail da vítima gera matrícula/pagamento no nome dela
+
+// Depois — auth OPCIONAL: anônimo só cria conta nova; agir sobre conta existente exige token
+const existingUser = await userModel.findByEmail(email);
+let userId;
+if (!existingUser) {
+    userId = await userModel.create(name, email, await bcrypt.hash(password, rounds));
+} else if (authenticatedUserId === existingUser.id) {
+    userId = existingUser.id;                       // recompra legítima do próprio dono
+} else {
+    throw new AuthenticationRequiredError('Faça login para comprar com este e-mail');
+}
+```
+O middleware que popula `authenticatedUserId` deve ser **opcional** (resolve o token se houver, não rejeita se faltar) — é isso que mantém a rota pública para quem está criando conta.
+
 **Checklist para considerar este finding resolvido:**
 - [ ] O token é **assinado e expira** — não é um valor previsível nem um identificador em texto puro.
 - [ ] **Todas** as rotas sensíveis têm o decorator (percorra a lista de rotas uma a uma; a que ficar de fora é o furo).
 - [ ] Existe checagem de **propriedade do recurso**, não só de login — testar que o usuário A não consegue alterar/apagar o recurso do usuário B.
 - [ ] Nenhuma rota pública aceita campo que concede privilégio (`role`, `is_admin`) vindo do corpo da requisição — testar `POST` anônimo com `{"role": "admin"}` e confirmar que não cria admin.
 - [ ] 401 e 403 são distinguidos.
+- [ ] **Cada rota listada no finding tem destino explícito**: foi protegida, ou foi removida do escopo com justificativa **emendada no relatório** (ver "PROIBIDO ESTREITAR ESCOPO EM SILÊNCIO" na Fase 3 do `SKILL.md`). Deixar uma rota do finding sem tratamento e explicar isso só no README mantém o finding aberto.
+- [ ] **Endpoints públicos por design foram avaliados quanto a prova de posse** — testar o fluxo público com o identificador de um recurso **já existente** (e-mail cadastrado, pedido de outro usuário) e confirmar que exige autenticação em vez de agir sobre o recurso alheio.
 
 ## 4. Separar God-module por domínio
 *(corrige anti-pattern #4)*
